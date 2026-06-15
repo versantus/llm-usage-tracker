@@ -285,6 +285,55 @@ export const MPG = 22.4;
 export const GALLONS_PER_KG_CO2 = 1 / 8.887;
 export const MILES_PER_KG_CO2 = MPG * GALLONS_PER_KG_CO2;
 
+/**
+ * Water footprint of inference. Per the same methodology (Jegham et al.;
+ * Li et al. 2023 "Making AI Less Thirsty"), operational water is approximately
+ * LINEAR in energy: on-site data-centre cooling (WUE) plus off-site electricity
+ * generation (EWIF), both expressed in litres per kWh. We therefore derive water
+ * directly from the energy we already compute — no separate measurement is stored.
+ *
+ * Both terms are highly region- and operator-dependent, so water is ALWAYS an
+ * approximation. Tune these if you have figures for your provider/region.
+ */
+export const WATER_ONSITE_L_PER_KWH = 0.2; // cooling (WUE); hyperscale ~0.18–0.5
+export const WATER_OFFSITE_L_PER_KWH = 1.6; // generation (EWIF); grid-dependent
+export const WATER_L_PER_KWH = WATER_ONSITE_L_PER_KWH + WATER_OFFSITE_L_PER_KWH; // ≈ 1.8
+
+export function calculateWaterLiters(energyWh: number): number {
+    return (energyWh / 1000) * WATER_L_PER_KWH;
+}
+
+// Real-world equivalents, for intuition (rough, order-of-magnitude figures).
+export const PHONE_CHARGE_WH = 12; // ~12 Wh to fully charge a smartphone
+export const KETTLE_CUP_WH = 32; // ~32 Wh to boil one mug in an electric kettle
+export const WATER_BOTTLE_L = 0.5; // a 500 mL bottle
+
+export interface Equivalents {
+    milesDriven: number; // petrol car, from CO₂
+    phoneCharges: number; // from energy
+    cupsOfTea: number; // kettle, from energy
+    waterBottles: number; // 500 mL, from water
+}
+
+/** Translate totals into everyday comparisons. */
+export function equivalents(energyWh: number, co2Grams: number, waterLiters?: number): Equivalents {
+    const water = waterLiters ?? calculateWaterLiters(energyWh);
+    return {
+        milesDriven: (co2Grams / 1000) * MILES_PER_KG_CO2,
+        phoneCharges: energyWh / PHONE_CHARGE_WH,
+        cupsOfTea: energyWh / KETTLE_CUP_WH,
+        waterBottles: water / WATER_BOTTLE_L
+    };
+}
+
+export function formatWater(liters: number): string {
+    const ml = liters * 1000;
+    if (ml < 1) return '< 1 mL';
+    if (liters < 1) return `${Math.round(ml)} mL`;
+    if (liters < 1000) return `${liters.toFixed(2)} L`;
+    return `${(liters / 1000).toFixed(2)} m³`;
+}
+
 export function formatCO2(grams: number): string {
     if (grams < 0.01) return '< 0.01g';
     if (grams < 1000) return `${grams.toFixed(2)}g`;

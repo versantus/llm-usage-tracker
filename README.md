@@ -33,7 +33,8 @@ double-count.
 bun install
 
 # 1. Start the central server (http://localhost:4317)
-bun run server/index.ts
+#    Auth is fail-closed: locally, run it open with LUT_ALLOW_NO_AUTH=1.
+LUT_ALLOW_NO_AUTH=1 bun run server/index.ts
 
 # 2. Configure this machine (identity + server URL)
 bun run client/setup.ts --name "You" --email you@example.com
@@ -79,6 +80,12 @@ marked approximate.
 - Offline spool: `~/.config/claude-usage-tracker/spool.ndjson`
 - Server DB: `~/.config/claude-usage-tracker/server.db` (override `LUT_DB_PATH`)
 - Env: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`
+- Auth (fail-closed): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + API), `LUT_INGEST_TOKEN`
+  (clients), or `LUT_ALLOW_NO_AUTH=1` to run open locally. See [DEPLOY.md](./DEPLOY.md).
+
+Carbon & energy use the Jegham et al. method; **water** is derived from energy
+(on-site cooling + off-site generation, ~1.8 L/kWh) and is approximate &
+region-dependent — tune the factors in `shared/carbon-calculator.ts`.
 
 ## Deferred (kept simple for v1)
 

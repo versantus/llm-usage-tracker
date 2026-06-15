@@ -56,7 +56,7 @@ Three parts share a vendored core:
 bun install                                   # deps (zod only)
 bunx tsc --noEmit                             # typecheck (must stay clean)
 
-bun run server/index.ts                       # start server :4317 (LUT_PORT, LUT_DB_PATH)
+LUT_ALLOW_NO_AUTH=1 bun run server/index.ts   # start server :4317 (auth is fail-closed; this runs it open for dev)
 bun run client/setup.ts --name N --email E --server-url URL [--no-cowork] [--wire-hook]
 bun run client/hooks/stop.ts                  # hook (reads stdin JSON)
 bun run client/watch-cowork.ts [--once] [--interval 15]
@@ -72,6 +72,8 @@ and a `cut report` (see README "Quick start").
 - Spool: `~/.config/claude-usage-tracker/spool.ndjson`
 - Server DB: `~/.config/claude-usage-tracker/server.db` locally; `/data/server.db` on Fly (volume)
 - Env overrides: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`, `LUT_DB_PATH`
+- Auth (fail-closed — unset secrets return 503): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + `/api/*` Basic Auth),
+  `LUT_INGEST_TOKEN` (clients send on `/ingest`), `LUT_ALLOW_NO_AUTH=1` (explicit local-dev open). `/api/health` always open.
 
 ## Deployment (Fly.io)
 

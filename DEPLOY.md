@@ -31,6 +31,30 @@
    # Auto-deploy main branch
    ```
 
+## Authentication (required — fail-closed)
+
+The server **denies all access (503)** until auth is configured — forgetting to
+set the secrets locks the app rather than exposing it. Set these as Fly secrets
+before/at first deploy:
+
+```bash
+flyctl secrets set \
+  LUT_DASH_USER=admin \
+  LUT_DASH_PASS="$(openssl rand -base64 18)" \
+  LUT_INGEST_TOKEN="$(openssl rand -hex 24)" \
+  -a llm-usage-tracker
+```
+
+- `LUT_DASH_PASS` (+ optional `LUT_DASH_USER`) → HTTP Basic Auth on the dashboard,
+  all `/api/*`, and the live stream.
+- `LUT_INGEST_TOKEN` → clients must send it on `/ingest` (set it during
+  `client/setup.ts --ingest-token …`).
+- `/api/health` stays open for the Fly healthcheck.
+
+Note the values you set — share `LUT_INGEST_TOKEN` and the dashboard login with
+the team. Only `LUT_ALLOW_NO_AUTH=1` runs the server open, and that is for **local
+dev only** — never set it on Fly.
+
 ## Deploy updates
 
 ```bash

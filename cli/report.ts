@@ -8,7 +8,13 @@
  */
 
 import { defaultServerUrl, loadConfig } from '../client/config.ts';
-import { formatCO2, formatEnergy } from '../shared/carbon-calculator.ts';
+import {
+    calculateWaterLiters,
+    equivalents,
+    formatCO2,
+    formatEnergy,
+    formatWater
+} from '../shared/carbon-calculator.ts';
 
 function flag(name: string, fallback?: string): string | undefined {
     const i = process.argv.indexOf(`--${name}`);
@@ -73,9 +79,18 @@ const rangeLabel = days ? `last ${days} days` : 'all time';
 console.log('');
 console.log('  Claude Usage Tracker — ' + rangeLabel);
 console.log('  ' + '─'.repeat(56));
+const energyWh = t.energy_wh || 0;
+const water = calculateWaterLiters(energyWh);
 console.log(
-    `  CO₂ ${formatCO2(t.co2_grams || 0)}   ·   Energy ${formatEnergy(t.energy_wh || 0)}   ·   ` +
-        `${fmtTokens(t.tokens || 0)} tokens   ·   ${t.sessions || 0} sessions   ·   ${t.users || 0} users`
+    `  CO₂ ${formatCO2(t.co2_grams || 0)}   ·   Energy ${formatEnergy(energyWh)}   ·   ` +
+        `Water ${formatWater(water)}~   ·   ${fmtTokens(t.tokens || 0)} tokens   ·   ` +
+        `${t.sessions || 0} sessions   ·   ${t.users || 0} users`
+);
+const eq = equivalents(energyWh, t.co2_grams || 0, water);
+const n = (x: number) => (x >= 10 ? Math.round(x).toLocaleString() : x.toFixed(1));
+console.log(
+    `  ≈ ${n(eq.milesDriven)} miles driven · ${n(eq.phoneCharges)} phone charges · ` +
+        `${n(eq.cupsOfTea)} cups of tea · ${n(eq.waterBottles)} bottles of water`
 );
 console.log('');
 

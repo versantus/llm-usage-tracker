@@ -28,6 +28,30 @@ function fmtEnergy(wh) {
     if (wh >= 1000) return (wh / 1000).toFixed(2) + ' kWh';
     return wh.toFixed(1) + ' Wh';
 }
+function fmtWater(l) {
+    const ml = l * 1000;
+    if (ml < 1) return '< 1 mL';
+    if (l < 1) return Math.round(ml) + ' mL';
+    if (l < 1000) return l.toFixed(2) + ' L';
+    return (l / 1000).toFixed(2) + ' m³';
+}
+
+// Equivalence factors — mirror of shared/carbon-calculator.ts (kept inline because
+// the dashboard is dependency-free vanilla JS served as a static file).
+const MILES_PER_KG_CO2 = 22.4 / 8.887; // EPA: 22.4 mpg, 8.887 kg CO₂/gal
+const WATER_L_PER_KWH = 1.8; // on-site cooling + off-site generation (approx)
+const PHONE_CHARGE_WH = 12;
+const KETTLE_CUP_WH = 32;
+const WATER_BOTTLE_L = 0.5;
+
+function waterLitres(energyWh) {
+    return (energyWh / 1000) * WATER_L_PER_KWH;
+}
+function fmtNum(n) {
+    if (n >= 100) return Math.round(n).toLocaleString();
+    if (n >= 10) return n.toFixed(0);
+    return n.toFixed(1);
+}
 
 function qs(path) {
     return days ? `${path}?days=${days}` : path;
@@ -40,6 +64,7 @@ async function refresh() {
         fetch(qs('/api/over-time')).then((r) => r.json())
     ]);
     renderCards(summary.totals);
+    renderEquiv(summary.totals);
     renderProviders(summary.byProvider);
     renderUsers(summary.byUser);
     renderModelChart(byModel);
@@ -50,6 +75,7 @@ function renderCards(t) {
     const cards = [
         { label: 'Total CO₂', value: fmtCO2(t.co2_grams || 0), sub: 'estimated emissions' },
         { label: 'Energy', value: fmtEnergy(t.energy_wh || 0), sub: 'compute energy' },
+        { label: 'Water', value: fmtWater(waterLitres(t.energy_wh || 0)), sub: 'cooling + generation ~' },
         { label: 'Tokens', value: fmtTokens(t.tokens || 0), sub: `${fmtInt(t.sessions || 0)} sessions` },
         { label: 'Users', value: fmtInt(t.users || 0), sub: 'tracked' }
     ];
@@ -60,6 +86,25 @@ function renderCards(t) {
                 `<div class="value">${c.value}</div><div class="sub">${c.sub}</div></div>`
         )
         .join('');
+}
+
+// Relatable comparisons computed from the totals.
+function renderEquiv(t) {
+    const co2 = t.co2_grams || 0;
+    const energy = t.energy_wh || 0;
+    const water = waterLitres(energy);
+    if (!co2 && !energy) {
+        document.getElementById('equiv').textContent = '';
+        return;
+    }
+    const items = [
+        `🚗 ${fmtNum((co2 / 1000) * MILES_PER_KG_CO2)} miles driven`,
+        `📱 ${fmtNum(energy / PHONE_CHARGE_WH)} phone charges`,
+        `🫖 ${fmtNum(energy / KETTLE_CUP_WH)} cups of tea boiled`,
+        `💧 ${fmtNum(water / WATER_BOTTLE_L)} bottles of water`
+    ];
+    document.getElementById('equiv').innerHTML =
+        '<span class="equiv-lead">Roughly equivalent to</span> ' + items.join('<span class="dot">·</span>');
 }
 
 function renderProviders(rows) {
@@ -185,7 +230,9 @@ function renderTimeChart(rows, users) {
                 x, y: yTop, width: barW, height: Math.max(segH, 0.5), rx: 2,
                 fill: userColor[user] || '#60a5fa'
             });
-            rect.appendChild(el('title', {}, `${user} — ${d}: ${fmtCO2(co2)}`));
+            rect.appendChild(
+                el('title', {}, `${user} — ${d}: ${fmtCO2(co2)} ≈ ${fmtNum((co2 / 1000) * MILES_PER_KG_CO2)} mi driven`)
+            );
             svg.appendChild(rect);
         }
         if (i % Math.ceil(days.length / 8) === 0 || days.length <= 8) {
