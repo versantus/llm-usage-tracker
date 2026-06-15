@@ -1,5 +1,5 @@
 {
-  "name": "claude-usage-tracker",
+  "name": "llm-usage-tracker",
   "version": "0.1.0",
   "private": true,
   "description": "Centrally track Claude (and other AI tool) usage and carbon estimates across an org, by user, over time.",
