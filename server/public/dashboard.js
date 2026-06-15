@@ -4,10 +4,17 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 const PALETTE = ['#4ade80', '#38bdf8', '#f472b6', '#fbbf24', '#a78bfa', '#fb7185', '#34d399', '#60a5fa'];
 
 const rangeEl = document.getElementById('range');
+
+// Restore the previously selected range, if it's still a valid option.
+const savedRange = localStorage.getItem('range');
+if (savedRange && [...rangeEl.options].some((o) => o.value === savedRange)) {
+    rangeEl.value = savedRange;
+}
 let days = Number(rangeEl.value);
 
 rangeEl.addEventListener('change', () => {
     days = Number(rangeEl.value);
+    localStorage.setItem('range', rangeEl.value);
     refresh();
 });
 
