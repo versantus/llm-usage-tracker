@@ -13,7 +13,7 @@ import { mkdirSync } from 'node:fs';
 
 import type { IngestEvent } from '../shared/types.ts';
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export function defaultDbPath(): string {
     return (
@@ -32,46 +32,56 @@ export function openDb(dbPath = defaultDbPath()): Database {
 }
 
 function migrate(db: Database): void {
-    const current = (db.query('PRAGMA user_version').get() as { user_version: number })
+    let current = (db.query('PRAGMA user_version').get() as { user_version: number })
         .user_version;
     if (current >= SCHEMA_VERSION) return;
 
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS users (
-            user_id    TEXT PRIMARY KEY,
-            name       TEXT NOT NULL,
-            email      TEXT NOT NULL,
-            first_seen TEXT NOT NULL,
-            last_seen  TEXT NOT NULL
-        );
+    // v1: base schema (fresh installs get the latest column set directly).
+    if (current < 1) {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS users (
+                user_id    TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                email      TEXT NOT NULL,
+                first_seen TEXT NOT NULL,
+                last_seen  TEXT NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS sessions (
-            user_id               TEXT NOT NULL,
-            session_id            TEXT NOT NULL,
-            provider              TEXT NOT NULL DEFAULT 'anthropic',
-            surface               TEXT NOT NULL DEFAULT 'claude-code',
-            machine_id            TEXT NOT NULL DEFAULT '',
-            cwd                   TEXT NOT NULL DEFAULT '',
-            primary_model         TEXT NOT NULL DEFAULT 'unknown',
-            models_used           TEXT NOT NULL DEFAULT '{}',
-            input_tokens          INTEGER NOT NULL DEFAULT 0,
-            output_tokens         INTEGER NOT NULL DEFAULT 0,
-            cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
-            cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
-            total_tokens          INTEGER NOT NULL DEFAULT 0,
-            energy_wh             REAL NOT NULL DEFAULT 0,
-            co2_grams             REAL NOT NULL DEFAULT 0,
-            carbon_approx         INTEGER NOT NULL DEFAULT 0,
-            started_at            TEXT NOT NULL,
-            updated_at            TEXT NOT NULL,
-            PRIMARY KEY (user_id, session_id)
-        );
+            CREATE TABLE IF NOT EXISTS sessions (
+                user_id               TEXT NOT NULL,
+                session_id            TEXT NOT NULL,
+                provider              TEXT NOT NULL DEFAULT 'anthropic',
+                surface               TEXT NOT NULL DEFAULT 'claude-code',
+                machine_id            TEXT NOT NULL DEFAULT '',
+                device_name           TEXT NOT NULL DEFAULT '',
+                cwd                   TEXT NOT NULL DEFAULT '',
+                primary_model         TEXT NOT NULL DEFAULT 'unknown',
+                models_used           TEXT NOT NULL DEFAULT '{}',
+                input_tokens          INTEGER NOT NULL DEFAULT 0,
+                output_tokens         INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+                total_tokens          INTEGER NOT NULL DEFAULT 0,
+                energy_wh             REAL NOT NULL DEFAULT 0,
+                co2_grams             REAL NOT NULL DEFAULT 0,
+                carbon_approx         INTEGER NOT NULL DEFAULT 0,
+                started_at            TEXT NOT NULL,
+                updated_at            TEXT NOT NULL,
+                PRIMARY KEY (user_id, session_id)
+            );
 
-        CREATE INDEX IF NOT EXISTS idx_sessions_user    ON sessions(user_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
-        CREATE INDEX IF NOT EXISTS idx_sessions_model   ON sessions(primary_model);
-        CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
-    `);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user    ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
+            CREATE INDEX IF NOT EXISTS idx_sessions_model   ON sessions(primary_model);
+            CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
+        `);
+        current = SCHEMA_VERSION; // fresh DB already has every column below
+    }
+
+    // v2: per-session device label (added to existing v1 databases).
+    if (current < 2) {
+        db.exec(`ALTER TABLE sessions ADD COLUMN device_name TEXT NOT NULL DEFAULT '';`);
+    }
 
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
 }
@@ -94,12 +104,12 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
 
     db.query(
         `INSERT INTO sessions (
-            user_id, session_id, provider, surface, machine_id, cwd,
+            user_id, session_id, provider, surface, machine_id, device_name, cwd,
             primary_model, models_used,
             input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, total_tokens,
             energy_wh, co2_grams, carbon_approx, started_at, updated_at
          ) VALUES (
-            $user_id, $session_id, $provider, $surface, $machine_id, $cwd,
+            $user_id, $session_id, $provider, $surface, $machine_id, $device_name, $cwd,
             $primary_model, $models_used,
             $input_tokens, $output_tokens, $cache_creation_tokens, $cache_read_tokens, $total_tokens,
             $energy_wh, $co2_grams, $carbon_approx, $started_at, $updated_at
@@ -108,6 +118,7 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
             provider = excluded.provider,
             surface = excluded.surface,
             machine_id = excluded.machine_id,
+            device_name = excluded.device_name,
             cwd = excluded.cwd,
             primary_model = excluded.primary_model,
             models_used = excluded.models_used,
@@ -126,6 +137,7 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
         $provider: e.provider,
         $surface: e.surface,
         $machine_id: e.machineId,
+        $device_name: e.deviceName || '',
         $cwd: e.cwd,
         $primary_model: e.primaryModel,
         $models_used: JSON.stringify(e.modelsUsed),
@@ -261,11 +273,21 @@ export function summaryByProvider(db: Database, days?: number) {
         .all();
 }
 
-/** Daily time-series per user (for stacked charts). */
+/**
+ * Time-series bucket: hourly for short ranges (≤ 2 days, e.g. the 12h/24h views),
+ * daily otherwise. Hourly keys carry a 'T' so the frontend can format them as times.
+ */
+function timeBucket(days?: number): string {
+    return days != null && days > 0 && days <= 2
+        ? `strftime('%Y-%m-%dT%H:00', started_at)`
+        : `date(started_at)`;
+}
+
+/** Time-series per user (for stacked charts), bucketed by hour or day per range. */
 export function overTime(db: Database, days?: number) {
     return db
         .query(
-            `SELECT date(started_at) AS day,
+            `SELECT ${timeBucket(days)} AS day,
                     u.name AS user,
                     COALESCE(SUM(s.total_tokens), 0) AS tokens,
                     COALESCE(SUM(s.co2_grams), 0) AS co2_grams
@@ -295,7 +317,7 @@ export function totals(db: Database, days?: number) {
 export function sessionsForUser(db: Database, userId: string, days?: number, limit = 50) {
     return db
         .query(
-            `SELECT session_id, provider, surface, primary_model, cwd,
+            `SELECT session_id, provider, surface, device_name, primary_model, cwd,
                     total_tokens, energy_wh, co2_grams, started_at, updated_at
              FROM sessions WHERE user_id = $id${andSince(days)}
              ORDER BY updated_at DESC LIMIT $limit`
@@ -321,17 +343,34 @@ export function modelsForUser(db: Database, userId: string, days?: number) {
     return aggregateModels(rows);
 }
 
-/** Daily time-series for one user. */
+/** Time-series for one user, bucketed by hour or day per range. */
 export function overTimeForUser(db: Database, userId: string, days?: number) {
     return db
         .query(
-            `SELECT date(started_at) AS day,
+            `SELECT ${timeBucket(days)} AS day,
                     COALESCE(SUM(total_tokens), 0) AS tokens,
                     COALESCE(SUM(co2_grams), 0) AS co2_grams,
                     COALESCE(SUM(energy_wh), 0) AS energy_wh
              FROM sessions WHERE user_id = $id${andSince(days)}
              GROUP BY day
              ORDER BY day ASC`
+        )
+        .all({ $id: userId });
+}
+
+/** Per-(app × device) breakdown for one user, e.g. "cowork × macOS". */
+export function appDeviceForUser(db: Database, userId: string, days?: number) {
+    return db
+        .query(
+            `SELECT surface,
+                    device_name,
+                    COUNT(*) AS sessions,
+                    COALESCE(SUM(total_tokens), 0) AS tokens,
+                    COALESCE(SUM(energy_wh), 0) AS energy_wh,
+                    COALESCE(SUM(co2_grams), 0) AS co2_grams
+             FROM sessions WHERE user_id = $id${andSince(days)}
+             GROUP BY surface, device_name
+             ORDER BY tokens DESC`
         )
         .all({ $id: userId });
 }

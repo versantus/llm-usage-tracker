@@ -4,3 +4,7 @@ node_modules/
 *.db-shm
 .env.local
 .DS_Store
+
+# Local machine artifacts (launchd agent for the Cowork watcher, IDE settings)
+*.plist
+.claude/settings.local.json

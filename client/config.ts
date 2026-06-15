@@ -16,7 +16,23 @@ export interface ClientConfig {
     serverUrl: string;
     /** Shared secret sent as x-ingest-token when the server requires it. Optional. */
     ingestToken?: string;
+    /** Human-friendly device / OS label (e.g. "macOS"). Defaults to the detected OS. */
+    deviceName?: string;
     surfaces: { claudeCode: boolean; cowork: boolean };
+}
+
+/** Friendly OS label used as the default device name. */
+export function detectDeviceName(): string {
+    switch (process.platform) {
+        case 'darwin':
+            return 'macOS';
+        case 'win32':
+            return 'Windows';
+        case 'linux':
+            return 'Linux';
+        default:
+            return process.platform || 'unknown';
+    }
 }
 
 export function configDir(): string {
@@ -59,6 +75,8 @@ export function loadConfig(): ClientConfig | null {
         // Env overrides
         if (process.env.LUT_SERVER_URL) cfg.serverUrl = process.env.LUT_SERVER_URL;
         if (process.env.LUT_INGEST_TOKEN) cfg.ingestToken = process.env.LUT_INGEST_TOKEN;
+        if (process.env.LUT_DEVICE_NAME) cfg.deviceName = process.env.LUT_DEVICE_NAME;
+        if (!cfg.deviceName) cfg.deviceName = detectDeviceName();
         if (process.env.LUT_USER_EMAIL) {
             cfg.user.email = process.env.LUT_USER_EMAIL;
             cfg.userId = userIdFromEmail(process.env.LUT_USER_EMAIL);
@@ -79,6 +97,7 @@ export function buildConfig(opts: {
     email: string;
     serverUrl?: string;
     ingestToken?: string;
+    deviceName?: string;
     claudeCode?: boolean;
     cowork?: boolean;
 }): ClientConfig {
@@ -88,6 +107,7 @@ export function buildConfig(opts: {
         machineId: machineId(),
         serverUrl: opts.serverUrl || defaultServerUrl(),
         ingestToken: opts.ingestToken || process.env.LUT_INGEST_TOKEN || undefined,
+        deviceName: opts.deviceName || process.env.LUT_DEVICE_NAME || detectDeviceName(),
         surfaces: {
             claudeCode: opts.claudeCode ?? true,
             cowork: opts.cowork ?? true

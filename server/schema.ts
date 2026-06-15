@@ -12,6 +12,7 @@ export const IngestEventSchema = z.object({
     userName: z.string().min(1),
     userEmail: z.string().min(1),
     machineId: z.string().default(''),
+    deviceName: z.string().default(''),
     provider: z.enum(['anthropic', 'openai', 'google', 'cursor', 'unknown']).default('anthropic'),
     surface: z
         .enum(['claude-code', 'cowork', 'codex-cli', 'cursor', 'unknown'])

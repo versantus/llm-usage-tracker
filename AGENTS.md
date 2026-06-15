@@ -71,7 +71,7 @@ and a `cut report` (see README "Quick start").
 - Client config: `~/.config/llm-usage-tracker/config.json` (`serverUrl`, identity, surfaces)
 - Spool: `~/.config/llm-usage-tracker/spool.ndjson`
 - Server DB: `~/.config/llm-usage-tracker/server.db` locally; `/data/server.db` on Fly (volume)
-- Env overrides: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`, `LUT_DB_PATH`
+- Env overrides: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_DEVICE_NAME`, `LUT_PORT`, `LUT_DB_PATH`
 - Auth (fail-closed — unset secrets return 503): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + `/api/*` Basic Auth),
   `LUT_INGEST_TOKEN` (clients send on `/ingest`), `LUT_ALLOW_NO_AUTH=1` (explicit local-dev open). `/api/health` always open.
 

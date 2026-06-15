@@ -34,6 +34,7 @@ export function toIngestEvent(cfg: ClientConfig, s: CollectedSession): IngestEve
         userName: cfg.user.name,
         userEmail: cfg.user.email,
         machineId: cfg.machineId,
+        deviceName: cfg.deviceName || '',
         provider: s.provider,
         surface: s.surface,
         sessionId: s.sessionId,

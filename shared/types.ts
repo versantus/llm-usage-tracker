@@ -64,6 +64,8 @@ export interface IngestEvent {
     userName: string;
     userEmail: string;
     machineId: string;
+    /** Human-friendly device / OS label (e.g. "macOS", "Windows laptop"). Set at setup. */
+    deviceName: string;
     provider: Provider;
     surface: Surface;
     sessionId: string;

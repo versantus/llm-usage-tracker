@@ -52,6 +52,17 @@ function fmtNum(n) {
     if (n >= 10) return n.toFixed(0);
     return n.toFixed(1);
 }
+// Human label for the selected range (supports fractional-day = hours).
+function rangeLabel(d) {
+    if (!d) return 'all time';
+    if (d < 1) return `last ${Math.round(d * 24)} hours`;
+    if (d === 1) return 'last 24 hours';
+    return `last ${d} days`;
+}
+// Time-series bucket key -> short axis label. Hourly keys carry a 'T'.
+function fmtBucket(key) {
+    return key.includes('T') ? key.slice(11) : key.slice(5); // 'HH:00' or 'MM-DD'
+}
 
 function qs(path) {
     return days ? `${path}?days=${days}` : path;
@@ -238,7 +249,7 @@ function renderTimeChart(rows, users) {
         if (i % Math.ceil(days.length / 8) === 0 || days.length <= 8) {
             svg.appendChild(
                 el('text', { x: x + barW / 2, y: h - 8, fill: '#8b97a6', 'font-size': 10,
-                    'text-anchor': 'middle' }, d.slice(5))
+                    'text-anchor': 'middle' }, fmtBucket(d))
             );
         }
     });
@@ -267,6 +278,7 @@ async function openUser(userId, fallbackName) {
     document.getElementById('detail-sub').textContent = 'Loading…';
     document.getElementById('detail-model').innerHTML = '';
     document.getElementById('detail-time').innerHTML = '';
+    document.querySelector('#detail-appdevice tbody').innerHTML = '';
     document.querySelector('#detail-sessions tbody').innerHTML = '';
     modal.classList.remove('hidden');
     modal.setAttribute('aria-hidden', 'false');
@@ -282,12 +294,32 @@ async function openUser(userId, fallbackName) {
     const name = (data.user && data.user.name) || fallbackName || 'User';
     const email = (data.user && data.user.email) || '';
     document.getElementById('detail-name').textContent = name;
-    const rangeLabel = days ? `last ${days} days` : 'all time';
-    document.getElementById('detail-sub').textContent = email ? `${email} · ${rangeLabel}` : rangeLabel;
+    const label = rangeLabel(days);
+    document.getElementById('detail-sub').textContent = email ? `${email} · ${label}` : label;
 
     renderModelChart(data.models, document.getElementById('detail-model'));
     renderUserTimeChart(data.overTime, document.getElementById('detail-time'));
+    renderAppDevice(data.appDevice);
     renderUserSessions(data.sessions);
+}
+
+// App × device breakdown for one user (e.g. cowork × macOS).
+function renderAppDevice(rows) {
+    const tbody = document.querySelector('#detail-appdevice tbody');
+    if (!rows || !rows.length) {
+        tbody.innerHTML = `<tr><td colspan="5" class="empty">No data in range.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows
+        .map(
+            (r) =>
+                `<tr><td>${escapeHtml(r.surface || 'unknown')}</td>` +
+                `<td>${escapeHtml(r.device_name || '—')}</td>` +
+                `<td class="num">${fmtInt(r.sessions)}</td>` +
+                `<td class="num">${fmtTokens(r.tokens)}</td>` +
+                `<td class="num">${fmtCO2(r.co2_grams)}</td></tr>`
+        )
+        .join('');
 }
 
 // Per-day bar chart (single user): CO₂ height, tokens in tooltip.
@@ -326,7 +358,7 @@ function renderUserTimeChart(rows, host) {
         if (i % Math.ceil(days_.length / 8) === 0 || days_.length <= 8) {
             svg.appendChild(
                 el('text', { x: x + barW / 2, y: h - 8, fill: '#8b97a6', 'font-size': 10,
-                    'text-anchor': 'middle' }, r.day.slice(5))
+                    'text-anchor': 'middle' }, fmtBucket(r.day))
             );
         }
     });
@@ -336,7 +368,7 @@ function renderUserTimeChart(rows, host) {
 function renderUserSessions(rows) {
     const tbody = document.querySelector('#detail-sessions tbody');
     if (!rows || !rows.length) {
-        tbody.innerHTML = `<tr><td colspan="5" class="empty">No sessions in range.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">No sessions in range.</td></tr>`;
         return;
     }
     tbody.innerHTML = rows
@@ -344,6 +376,7 @@ function renderUserSessions(rows) {
             (r) =>
                 `<tr><td>${escapeHtml(String(r.started_at).slice(0, 16).replace('T', ' '))}</td>` +
                 `<td>${escapeHtml(r.surface)}</td>` +
+                `<td>${escapeHtml(r.device_name || '—')}</td>` +
                 `<td>${escapeHtml(shortModel(r.primary_model))}</td>` +
                 `<td class="num">${fmtTokens(r.total_tokens)}</td>` +
                 `<td class="num">${fmtCO2(r.co2_grams)}</td></tr>`

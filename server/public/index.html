@@ -16,6 +16,8 @@
             <label for="range">Range</label>
             <select id="range">
                 <option value="0">All time</option>
+                <option value="0.5">Last 12 hours</option>
+                <option value="1">Last 24 hours</option>
                 <option value="7" selected>Last 7 days</option>
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
@@ -78,11 +80,23 @@
                 </div>
             </div>
             <div class="panel">
+                <h3>App × device</h3>
+                <table id="detail-appdevice">
+                    <thead>
+                        <tr>
+                            <th>App</th><th>Device</th><th class="num">Sessions</th>
+                            <th class="num">Tokens</th><th class="num">CO₂</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="panel">
                 <h3>Recent sessions</h3>
                 <table id="detail-sessions">
                     <thead>
                         <tr>
-                            <th>Started</th><th>Surface</th><th>Model</th>
+                            <th>Started</th><th>App</th><th>Device</th><th>Model</th>
                             <th class="num">Tokens</th><th class="num">CO₂</th>
                         </tr>
                     </thead>

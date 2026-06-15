@@ -10,6 +10,7 @@
 import { join } from 'node:path';
 
 import {
+    appDeviceForUser,
     getUser,
     modelsForUser,
     openDb,
@@ -141,6 +142,7 @@ const server = Bun.serve({
             return Response.json({
                 user: getUser(db, userId),
                 models: modelsForUser(db, userId, days),
+                appDevice: appDeviceForUser(db, userId, days),
                 overTime: overTimeForUser(db, userId, days),
                 sessions: sessionsForUser(db, userId, days)
             });

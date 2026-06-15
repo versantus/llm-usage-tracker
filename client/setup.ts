@@ -16,6 +16,7 @@ import {
     buildConfig,
     configPath,
     defaultServerUrl,
+    detectDeviceName,
     loadConfig,
     saveConfig
 } from './config.ts';
@@ -47,9 +48,11 @@ let email = flag('email') ?? existing?.user.email ?? '';
 const serverUrl = flag('server-url') ?? existing?.serverUrl ?? defaultServerUrl();
 const ingestToken =
     flag('ingest-token') ?? process.env.LUT_INGEST_TOKEN ?? existing?.ingestToken;
+let deviceName = flag('device-name') ?? process.env.LUT_DEVICE_NAME ?? existing?.deviceName ?? '';
 
 if (!name) name = await prompt('Your name');
 if (!email) email = await prompt('Your work email');
+if (!deviceName) deviceName = await prompt('Device / OS label (for breakdowns)', detectDeviceName());
 
 if (!name || !email) {
     console.error('Name and email are required. Pass --name and --email, or run interactively.');
@@ -61,6 +64,7 @@ const cfg = buildConfig({
     email,
     serverUrl,
     ingestToken,
+    deviceName,
     claudeCode: existing?.surfaces.claudeCode ?? true,
     cowork: has('no-cowork') ? false : existing?.surfaces.cowork ?? true
 });
@@ -68,6 +72,7 @@ saveConfig(cfg);
 
 console.error(`\n✓ Config written to ${configPath()}`);
 console.error(`  User:   ${cfg.user.name} <${cfg.user.email}>  (id ${cfg.userId})`);
+console.error(`  Device: ${cfg.deviceName}`);
 console.error(`  Server: ${cfg.serverUrl}`);
 
 // Plugin installs wire the hook via hooks/hooks.json. For a non-plugin install,
