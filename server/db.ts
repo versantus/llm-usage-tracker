@@ -320,7 +320,7 @@ export function sessionsForUser(db: Database, userId: string, days?: number, lim
             `SELECT session_id, provider, surface, device_name, primary_model, cwd,
                     total_tokens, energy_wh, co2_grams, started_at, updated_at
              FROM sessions WHERE user_id = $id${andSince(days)}
-             ORDER BY updated_at DESC LIMIT $limit`
+             ORDER BY started_at DESC LIMIT $limit`
         )
         .all({ $id: userId, $limit: limit });
 }

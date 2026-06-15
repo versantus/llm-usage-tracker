@@ -307,7 +307,7 @@ async function openUser(userId, fallbackName) {
 function renderAppDevice(rows) {
     const tbody = document.querySelector('#detail-appdevice tbody');
     if (!rows || !rows.length) {
-        tbody.innerHTML = `<tr><td colspan="5" class="empty">No data in range.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">No data in range.</td></tr>`;
         return;
     }
     tbody.innerHTML = rows
@@ -317,6 +317,7 @@ function renderAppDevice(rows) {
                 `<td>${escapeHtml(r.device_name || '—')}</td>` +
                 `<td class="num">${fmtInt(r.sessions)}</td>` +
                 `<td class="num">${fmtTokens(r.tokens)}</td>` +
+                `<td class="num">${fmtWater(waterLitres(r.energy_wh))}</td>` +
                 `<td class="num">${fmtCO2(r.co2_grams)}</td></tr>`
         )
         .join('');
@@ -368,7 +369,7 @@ function renderUserTimeChart(rows, host) {
 function renderUserSessions(rows) {
     const tbody = document.querySelector('#detail-sessions tbody');
     if (!rows || !rows.length) {
-        tbody.innerHTML = `<tr><td colspan="6" class="empty">No sessions in range.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="empty">No sessions in range.</td></tr>`;
         return;
     }
     tbody.innerHTML = rows
@@ -379,6 +380,7 @@ function renderUserSessions(rows) {
                 `<td>${escapeHtml(r.device_name || '—')}</td>` +
                 `<td>${escapeHtml(shortModel(r.primary_model))}</td>` +
                 `<td class="num">${fmtTokens(r.total_tokens)}</td>` +
+                `<td class="num">${fmtWater(waterLitres(r.energy_wh))}</td>` +
                 `<td class="num">${fmtCO2(r.co2_grams)}</td></tr>`
         )
         .join('');
