@@ -38,7 +38,7 @@ runHook(async () => {
     if (session.usage.totals.totalTokens === 0) return; // nothing to report yet
 
     const event = toIngestEvent(cfg, session);
-    const ok = await postEvent(cfg.serverUrl, event);
+    const ok = await postEvent(cfg.serverUrl, event, cfg.ingestToken);
     log(
         ok
             ? `sent ${session.sessionId} (${event.totalTokens} tok, ${event.co2Grams.toFixed(2)}g CO₂)`

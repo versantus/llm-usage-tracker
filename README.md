@@ -77,8 +77,8 @@ marked approximate.
 
 - Client config: `~/.config/claude-usage-tracker/config.json`
 - Offline spool: `~/.config/claude-usage-tracker/spool.ndjson`
-- Server DB: `~/.config/claude-usage-tracker/server.db` (override `CUT_DB_PATH`)
-- Env: `CUT_SERVER_URL`, `CUT_USER_EMAIL`, `CUT_PORT`
+- Server DB: `~/.config/claude-usage-tracker/server.db` (override `LUT_DB_PATH`)
+- Env: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`
 
 ## Deferred (kept simple for v1)
 

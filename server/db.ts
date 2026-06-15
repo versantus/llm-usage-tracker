@@ -17,7 +17,7 @@ const SCHEMA_VERSION = 1;
 
 export function defaultDbPath(): string {
     return (
-        process.env.CUT_DB_PATH ||
+        process.env.LUT_DB_PATH ||
         join(homedir(), '.config', 'claude-usage-tracker', 'server.db')
     );
 }
@@ -148,40 +148,26 @@ function sinceClause(days?: number): string {
     return `WHERE started_at >= '${since}'`;
 }
 
-/** Per-user rollup. */
-export function summaryByUser(db: Database, days?: number) {
-    return db
-        .query(
-            `SELECT u.user_id, u.name, u.email,
-                    COUNT(*) AS sessions,
-                    COALESCE(SUM(s.total_tokens), 0) AS tokens,
-                    COALESCE(SUM(s.energy_wh), 0) AS energy_wh,
-                    COALESCE(SUM(s.co2_grams), 0) AS co2_grams
-             FROM sessions s JOIN users u USING(user_id)
-             ${sinceClause(days)}
-             GROUP BY s.user_id
-             ORDER BY co2_grams DESC`
-        )
-        .all();
+/** Like sinceClause but for appending to an existing WHERE (e.g. WHERE user_id = ?). */
+function andSince(days?: number): string {
+    if (!days || days <= 0) return '';
+    const since = new Date(Date.now() - days * 86400_000).toISOString();
+    return ` AND started_at >= '${since}'`;
 }
 
-/** Per-model rollup: breaks down sessions by their full models_used breakdown, not just primary_model. */
-export function summaryByModel(db: Database, days?: number) {
-    const rows = db
-        .query(
-            `SELECT session_id, models_used, energy_wh, co2_grams, carbon_approx
-             FROM sessions
-             ${sinceClause(days)}`
-        )
-        .all() as Array<{
-        session_id: string;
-        models_used: string;
-        energy_wh: number;
-        co2_grams: number;
-        carbon_approx: number;
-    }>;
+type ModelRow = {
+    models_used: string;
+    energy_wh: number;
+    co2_grams: number;
+    carbon_approx: number;
+};
 
-    // Expand each session's models_used into per-model rows, aggregate
+/**
+ * Expand a set of session rows into a per-model rollup, allocating each
+ * session's energy/CO₂ across its models proportionally to token share.
+ * Shared by the global and per-user model breakdowns.
+ */
+function aggregateModels(rows: ModelRow[]) {
     const byModel: Record<
         string,
         { sessions: number; tokens: number; energy_wh: number; co2_grams: number; carbon_approx: number }
@@ -211,7 +197,7 @@ export function summaryByModel(db: Database, days?: number) {
             // Proportional allocation of energy/co2 to each model based on token share
             const share = (tokens as number) / totalTokens;
             byModel[model].sessions += 1 / sessionCount;
-            byModel[model].tokens += (tokens as number);
+            byModel[model].tokens += tokens as number;
             byModel[model].energy_wh += row.energy_wh * share;
             byModel[model].co2_grams += row.co2_grams * share;
             byModel[model].carbon_approx = Math.max(byModel[model].carbon_approx, row.carbon_approx);
@@ -228,6 +214,35 @@ export function summaryByModel(db: Database, days?: number) {
             carbon_approx: data.carbon_approx
         }))
         .sort((a, b) => b.co2_grams - a.co2_grams);
+}
+
+/** Per-user rollup. */
+export function summaryByUser(db: Database, days?: number) {
+    return db
+        .query(
+            `SELECT u.user_id, u.name, u.email,
+                    COUNT(*) AS sessions,
+                    COALESCE(SUM(s.total_tokens), 0) AS tokens,
+                    COALESCE(SUM(s.energy_wh), 0) AS energy_wh,
+                    COALESCE(SUM(s.co2_grams), 0) AS co2_grams
+             FROM sessions s JOIN users u USING(user_id)
+             ${sinceClause(days)}
+             GROUP BY s.user_id
+             ORDER BY co2_grams DESC`
+        )
+        .all();
+}
+
+/** Per-model rollup: breaks down sessions by their full models_used breakdown, not just primary_model. */
+export function summaryByModel(db: Database, days?: number) {
+    const rows = db
+        .query(
+            `SELECT models_used, energy_wh, co2_grams, carbon_approx
+             FROM sessions
+             ${sinceClause(days)}`
+        )
+        .all() as ModelRow[];
+    return aggregateModels(rows);
 }
 
 /** Per-provider rollup. */
@@ -276,14 +291,47 @@ export function totals(db: Database, days?: number) {
         .get();
 }
 
-/** Recent sessions for a user. */
-export function sessionsForUser(db: Database, userId: string, limit = 50) {
+/** Recent sessions for a user, optionally restricted to the last `days`. */
+export function sessionsForUser(db: Database, userId: string, days?: number, limit = 50) {
     return db
         .query(
             `SELECT session_id, provider, surface, primary_model, cwd,
                     total_tokens, energy_wh, co2_grams, started_at, updated_at
-             FROM sessions WHERE user_id = $id
+             FROM sessions WHERE user_id = $id${andSince(days)}
              ORDER BY updated_at DESC LIMIT $limit`
         )
         .all({ $id: userId, $limit: limit });
+}
+
+/** Identity row for a single user (or null if unknown). */
+export function getUser(db: Database, userId: string) {
+    return db
+        .query(`SELECT user_id, name, email, first_seen, last_seen FROM users WHERE user_id = $id`)
+        .get({ $id: userId });
+}
+
+/** Per-model breakdown for one user (same proportional allocation as summaryByModel). */
+export function modelsForUser(db: Database, userId: string, days?: number) {
+    const rows = db
+        .query(
+            `SELECT models_used, energy_wh, co2_grams, carbon_approx
+             FROM sessions WHERE user_id = $id${andSince(days)}`
+        )
+        .all({ $id: userId }) as ModelRow[];
+    return aggregateModels(rows);
+}
+
+/** Daily time-series for one user. */
+export function overTimeForUser(db: Database, userId: string, days?: number) {
+    return db
+        .query(
+            `SELECT date(started_at) AS day,
+                    COALESCE(SUM(total_tokens), 0) AS tokens,
+                    COALESCE(SUM(co2_grams), 0) AS co2_grams,
+                    COALESCE(SUM(energy_wh), 0) AS energy_wh
+             FROM sessions WHERE user_id = $id${andSince(days)}
+             GROUP BY day
+             ORDER BY day ASC`
+        )
+        .all({ $id: userId });
 }

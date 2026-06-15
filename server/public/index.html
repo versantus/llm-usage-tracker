@@ -54,6 +54,42 @@
         Carbon via Jegham et al. (arXiv 2505.09598). Non-Anthropic models are approximate.
     </footer>
 
+    <!-- Per-user drill-down (opened by clicking a user row) -->
+    <div id="user-modal" class="modal hidden" aria-hidden="true">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="detail-name">
+            <div class="modal-head">
+                <div>
+                    <h2 id="detail-name">User</h2>
+                    <div class="modal-sub" id="detail-sub"></div>
+                </div>
+                <button class="modal-close" id="detail-close" aria-label="Close" data-close>×</button>
+            </div>
+            <div class="modal-grid">
+                <div class="panel">
+                    <h3>Tokens by model</h3>
+                    <div id="detail-model" class="chart"></div>
+                </div>
+                <div class="panel">
+                    <h3>Usage over time</h3>
+                    <div id="detail-time" class="chart"></div>
+                </div>
+            </div>
+            <div class="panel">
+                <h3>Recent sessions</h3>
+                <table id="detail-sessions">
+                    <thead>
+                        <tr>
+                            <th>Started</th><th>Surface</th><th>Model</th>
+                            <th class="num">Tokens</th><th class="num">CO₂</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <script src="/dashboard.js"></script>
 </body>
 </html>

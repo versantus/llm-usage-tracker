@@ -4,7 +4,7 @@
  *
  *   bun run cli/report.ts [--days N] [--by user|model] [--json] [--server URL]
  *
- * Defaults to the server URL from client config / CUT_SERVER_URL / localhost:4317.
+ * Defaults to the server URL from client config / LUT_SERVER_URL / localhost:4317.
  */
 
 import { defaultServerUrl, loadConfig } from '../client/config.ts';
@@ -26,8 +26,17 @@ function q(path: string): string {
     return days ? `${serverUrl}${path}?days=${days}` : `${serverUrl}${path}`;
 }
 
+// If the server enforces dashboard Basic Auth, pass creds via env.
+function authHeaders(): Record<string, string> {
+    const user = process.env.LUT_DASH_USER || '';
+    const pass = process.env.LUT_DASH_PASS || '';
+    if (!pass) return {};
+    return { authorization: 'Basic ' + btoa(`${user}:${pass}`) };
+}
+
 async function get(path: string): Promise<any> {
-    const res = await fetch(q(path));
+    const res = await fetch(q(path), { headers: authHeaders() });
+    if (res.status === 401) throw new Error(`${path} -> 401 (set LUT_DASH_USER / LUT_DASH_PASS)`);
     if (!res.ok) throw new Error(`${path} -> ${res.status}`);
     return res.json();
 }

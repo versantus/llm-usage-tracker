@@ -14,6 +14,8 @@ export interface ClientConfig {
     userId: string;
     machineId: string;
     serverUrl: string;
+    /** Shared secret sent as x-ingest-token when the server requires it. Optional. */
+    ingestToken?: string;
     surfaces: { claudeCode: boolean; cowork: boolean };
 }
 
@@ -46,7 +48,7 @@ export function machineId(): string {
 }
 
 export function defaultServerUrl(): string {
-    return process.env.CUT_SERVER_URL || 'http://localhost:4317';
+    return process.env.LUT_SERVER_URL || 'http://localhost:4317';
 }
 
 export function loadConfig(): ClientConfig | null {
@@ -55,10 +57,11 @@ export function loadConfig(): ClientConfig | null {
     try {
         const cfg = JSON.parse(readFileSync(p, 'utf-8')) as ClientConfig;
         // Env overrides
-        if (process.env.CUT_SERVER_URL) cfg.serverUrl = process.env.CUT_SERVER_URL;
-        if (process.env.CUT_USER_EMAIL) {
-            cfg.user.email = process.env.CUT_USER_EMAIL;
-            cfg.userId = userIdFromEmail(process.env.CUT_USER_EMAIL);
+        if (process.env.LUT_SERVER_URL) cfg.serverUrl = process.env.LUT_SERVER_URL;
+        if (process.env.LUT_INGEST_TOKEN) cfg.ingestToken = process.env.LUT_INGEST_TOKEN;
+        if (process.env.LUT_USER_EMAIL) {
+            cfg.user.email = process.env.LUT_USER_EMAIL;
+            cfg.userId = userIdFromEmail(process.env.LUT_USER_EMAIL);
         }
         return cfg;
     } catch {
@@ -75,6 +78,7 @@ export function buildConfig(opts: {
     name: string;
     email: string;
     serverUrl?: string;
+    ingestToken?: string;
     claudeCode?: boolean;
     cowork?: boolean;
 }): ClientConfig {
@@ -83,6 +87,7 @@ export function buildConfig(opts: {
         userId: userIdFromEmail(opts.email),
         machineId: machineId(),
         serverUrl: opts.serverUrl || defaultServerUrl(),
+        ingestToken: opts.ingestToken || process.env.LUT_INGEST_TOKEN || undefined,
         surfaces: {
             claudeCode: opts.claudeCode ?? true,
             cowork: opts.cowork ?? true

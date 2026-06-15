@@ -45,6 +45,8 @@ const existing = loadConfig();
 let name = flag('name') ?? existing?.user.name ?? '';
 let email = flag('email') ?? existing?.user.email ?? '';
 const serverUrl = flag('server-url') ?? existing?.serverUrl ?? defaultServerUrl();
+const ingestToken =
+    flag('ingest-token') ?? process.env.LUT_INGEST_TOKEN ?? existing?.ingestToken;
 
 if (!name) name = await prompt('Your name');
 if (!email) email = await prompt('Your work email');
@@ -58,6 +60,7 @@ const cfg = buildConfig({
     name,
     email,
     serverUrl,
+    ingestToken,
     claudeCode: existing?.surfaces.claudeCode ?? true,
     cowork: has('no-cowork') ? false : existing?.surfaces.cowork ?? true
 });
@@ -74,7 +77,7 @@ if (has('wire-hook')) {
     console.error(`  Hook:   ${res}`);
 }
 
-await flushSpool(cfg.serverUrl);
+await flushSpool(cfg.serverUrl, cfg.ingestToken);
 
 if (cfg.surfaces.cowork) {
     if (coworkAvailable()) {

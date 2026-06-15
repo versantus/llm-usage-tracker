@@ -83,7 +83,8 @@ function renderUsers(rows) {
         .map((r, i) => {
             const color = PALETTE[i % PALETTE.length];
             return (
-                `<tr><td><span class="swatch" style="background:${color}"></span>${escapeHtml(r.name)}</td>` +
+                `<tr data-user-id="${escapeHtml(r.user_id)}" data-user-name="${escapeHtml(r.name)}" title="View ${escapeHtml(r.name)}'s breakdown">` +
+                `<td><span class="swatch" style="background:${color}"></span>${escapeHtml(r.name)}</td>` +
                 `<td>${escapeHtml(r.email)}</td>` +
                 `<td class="num">${fmtInt(r.sessions)}</td>` +
                 `<td class="num">${fmtTokens(r.tokens)}</td>` +
@@ -92,11 +93,13 @@ function renderUsers(rows) {
             );
         })
         .join('');
+    tbody.querySelectorAll('tr[data-user-id]').forEach((tr) => {
+        tr.addEventListener('click', () => openUser(tr.dataset.userId, tr.dataset.userName));
+    });
 }
 
 // --- Horizontal bar chart: tokens by model ---
-function renderModelChart(rows) {
-    const host = document.getElementById('chart-model');
+function renderModelChart(rows, host = document.getElementById('chart-model')) {
     if (!rows || !rows.length) {
         host.innerHTML = `<div class="empty">No data</div>`;
         return;
@@ -208,6 +211,107 @@ function el(tag, attrs, text) {
 function escapeHtml(s) {
     return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+// --- Per-user drill-down modal ---
+const modal = document.getElementById('user-modal');
+
+async function openUser(userId, fallbackName) {
+    document.getElementById('detail-name').textContent = fallbackName || 'User';
+    document.getElementById('detail-sub').textContent = 'Loading…';
+    document.getElementById('detail-model').innerHTML = '';
+    document.getElementById('detail-time').innerHTML = '';
+    document.querySelector('#detail-sessions tbody').innerHTML = '';
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+
+    let data;
+    try {
+        data = await fetch(qs(`/api/by-user/${encodeURIComponent(userId)}`)).then((r) => r.json());
+    } catch {
+        document.getElementById('detail-sub').textContent = 'Failed to load.';
+        return;
+    }
+
+    const name = (data.user && data.user.name) || fallbackName || 'User';
+    const email = (data.user && data.user.email) || '';
+    document.getElementById('detail-name').textContent = name;
+    const rangeLabel = days ? `last ${days} days` : 'all time';
+    document.getElementById('detail-sub').textContent = email ? `${email} · ${rangeLabel}` : rangeLabel;
+
+    renderModelChart(data.models, document.getElementById('detail-model'));
+    renderUserTimeChart(data.overTime, document.getElementById('detail-time'));
+    renderUserSessions(data.sessions);
+}
+
+// Per-day bar chart (single user): CO₂ height, tokens in tooltip.
+function renderUserTimeChart(rows, host) {
+    if (!rows || !rows.length) {
+        host.innerHTML = `<div class="empty">No data</div>`;
+        return;
+    }
+    const days_ = rows.map((r) => r.day);
+    const max = Math.max(...rows.map((r) => r.co2_grams), 1);
+
+    const w = host.clientWidth || 420;
+    const h = 200;
+    const padL = 46, padB = 26, padT = 10;
+    const plotW = w - padL - 10;
+    const plotH = h - padB - padT;
+    const slot = plotW / days_.length;
+    const barW = Math.min(slot * 0.6, 34);
+
+    const svg = el('svg', { viewBox: `0 0 ${w} ${h}`, height: h });
+    for (let g = 0; g <= 3; g++) {
+        const val = (max / 3) * g;
+        const y = padT + plotH - (val / max) * plotH;
+        svg.appendChild(el('line', { x1: padL, y1: y, x2: w - 10, y2: y, stroke: '#2a323d' }));
+        svg.appendChild(el('text', { x: 0, y: y + 4, fill: '#8b97a6', 'font-size': 11 }, fmtCO2(val)));
+    }
+    rows.forEach((r, i) => {
+        const x = padL + i * slot + (slot - barW) / 2;
+        const segH = (r.co2_grams / max) * plotH;
+        const y = padT + plotH - segH;
+        const rect = el('rect', {
+            x, y, width: barW, height: Math.max(segH, 0.5), rx: 2, fill: PALETTE[1]
+        });
+        rect.appendChild(el('title', {}, `${r.day}: ${fmtCO2(r.co2_grams)} · ${fmtTokens(r.tokens)} tok`));
+        svg.appendChild(rect);
+        if (i % Math.ceil(days_.length / 8) === 0 || days_.length <= 8) {
+            svg.appendChild(
+                el('text', { x: x + barW / 2, y: h - 8, fill: '#8b97a6', 'font-size': 10,
+                    'text-anchor': 'middle' }, r.day.slice(5))
+            );
+        }
+    });
+    host.replaceChildren(svg);
+}
+
+function renderUserSessions(rows) {
+    const tbody = document.querySelector('#detail-sessions tbody');
+    if (!rows || !rows.length) {
+        tbody.innerHTML = `<tr><td colspan="5" class="empty">No sessions in range.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows
+        .map(
+            (r) =>
+                `<tr><td>${escapeHtml(String(r.started_at).slice(0, 16).replace('T', ' '))}</td>` +
+                `<td>${escapeHtml(r.surface)}</td>` +
+                `<td>${escapeHtml(shortModel(r.primary_model))}</td>` +
+                `<td class="num">${fmtTokens(r.total_tokens)}</td>` +
+                `<td class="num">${fmtCO2(r.co2_grams)}</td></tr>`
+        )
+        .join('');
+}
+
+function closeModal() {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+}
+modal.querySelectorAll('[data-close]').forEach((n) => n.addEventListener('click', closeModal));
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !modal.classList.contains('hidden')) closeModal();
+});
 
 // --- Live updates ---
 const liveEl = document.getElementById('live');

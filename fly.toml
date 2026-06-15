@@ -12,8 +12,8 @@ primary_region = 'lhr'
 [build]
 
 [env]
-  CUT_DB_PATH = '/data/server.db'
-  CUT_PORT = '4317'
+  LUT_DB_PATH = '/data/server.db'
+  LUT_PORT = '4317'
 
 [[mounts]]
   source = 'data'

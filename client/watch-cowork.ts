@@ -49,7 +49,7 @@ async function scanOnce(): Promise<void> {
         }
 
         const event = toIngestEvent(cfg, session);
-        const ok = await postEvent(cfg.serverUrl, event);
+        const ok = await postEvent(cfg.serverUrl, event, cfg.ingestToken);
         seen.set(file.auditPath, file.mtimeMs);
         logLine(
             ok

@@ -56,7 +56,7 @@ Three parts share a vendored core:
 bun install                                   # deps (zod only)
 bunx tsc --noEmit                             # typecheck (must stay clean)
 
-bun run server/index.ts                       # start server :4317 (CUT_PORT, CUT_DB_PATH)
+bun run server/index.ts                       # start server :4317 (LUT_PORT, LUT_DB_PATH)
 bun run client/setup.ts --name N --email E --server-url URL [--no-cowork] [--wire-hook]
 bun run client/hooks/stop.ts                  # hook (reads stdin JSON)
 bun run client/watch-cowork.ts [--once] [--interval 15]
@@ -71,12 +71,12 @@ and a `cut report` (see README "Quick start").
 - Client config: `~/.config/claude-usage-tracker/config.json` (`serverUrl`, identity, surfaces)
 - Spool: `~/.config/claude-usage-tracker/spool.ndjson`
 - Server DB: `~/.config/claude-usage-tracker/server.db` locally; `/data/server.db` on Fly (volume)
-- Env overrides: `CUT_SERVER_URL`, `CUT_USER_EMAIL`, `CUT_PORT`, `CUT_DB_PATH`
+- Env overrides: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`, `LUT_DB_PATH`
 
 ## Deployment (Fly.io)
 
 Hosted in the **your-org** org as app `llm-usage-tracker` (region `lhr`). SQLite persists
-on a Fly **volume** mounted at `/data` (`CUT_DB_PATH=/data/server.db` in `fly.toml`).
+on a Fly **volume** mounted at `/data` (`LUT_DB_PATH=/data/server.db` in `fly.toml`).
 
 ```bash
 flyctl deploy                                 # build Dockerfile + deploy
@@ -87,7 +87,7 @@ flyctl status
 - `Dockerfile` — `oven/bun:1.3.6-slim`, copies `package.json` (+ optional lockfile),
   `bun install`, copies source, runs `bun run server/index.ts`, healthcheck on `/api/health`.
 - `fly.toml` — app name, `[[mounts]] source="data" destination="/data"`, `internal_port 4317`,
-  `force_https`. **Keep `app` and `CUT_DB_PATH` in sync with this file when renaming.**
+  `force_https`. **Keep `app` and `LUT_DB_PATH` in sync with this file when renaming.**
 - First-time setup and team rollout details: see `DEPLOY.md`.
 
 ## Client install (team)
