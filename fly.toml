@@ -1,0 +1,39 @@
+# Fly.io config for claude-usage-tracker
+# Deploy with: flyctl launch (first time) or flyctl deploy (subsequent)
+
+app = "claude-usage-tracker"
+primary_region = "sjc"  # San Jose (US West) — change to your preferred region
+
+[build]
+dockerfile = "Dockerfile"
+
+[env]
+CUT_DB_PATH = "/data/server.db"
+CUT_PORT = "4317"
+
+[[mounts]]
+source = "data"
+destination = "/data"
+
+[[services]]
+protocol = "tcp"
+internal_port = 4317
+processes = ["app"]
+
+[[services.ports]]
+port = 80
+handlers = ["http"]
+force_https = true
+
+[[services.ports]]
+port = 443
+handlers = ["tls", "http"]
+
+[http_service]
+internal_port = 4317
+force_https = true
+
+[[vm]]
+cpu_kind = "shared"
+cpus = 1
+memory_mb = 256
