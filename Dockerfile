@@ -3,7 +3,8 @@ FROM oven/bun:1.3.6-slim
 WORKDIR /app
 
 # Copy package files
-COPY package.json bun.lockb ./
+COPY package.json ./
+COPY bun.lockb* ./
 RUN bun install
 
 # Copy source
