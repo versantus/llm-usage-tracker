@@ -4,7 +4,7 @@
  *
  *   bun run server/index.ts        # listens on http://localhost:4317
  *
- * Env: LUT_PORT (default 4317), LUT_DB_PATH (default ~/.config/claude-usage-tracker/server.db)
+ * Env: LUT_PORT (default 4317), LUT_DB_PATH (default ~/.config/llm-usage-tracker/server.db)
  */
 
 import { join } from 'node:path';
@@ -158,7 +158,7 @@ const server = Bun.serve({
     }
 });
 
-console.log(`claude-usage-tracker server listening on http://localhost:${server.port}`);
+console.log(`llm-usage-tracker server listening on http://localhost:${server.port}`);
 console.log(`dashboard: http://localhost:${server.port}/`);
 const dashState = DASH_PASS ? 'PROTECTED' : ALLOW_NO_AUTH ? 'OPEN (LUT_ALLOW_NO_AUTH)' : 'LOCKED (503)';
 const ingestState = INGEST_TOKEN ? 'TOKEN required' : ALLOW_NO_AUTH ? 'OPEN (LUT_ALLOW_NO_AUTH)' : 'LOCKED (503)';

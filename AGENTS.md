@@ -9,12 +9,12 @@ Org-wide tracker for **LLM usage + carbon estimates**, by **user**, over **time*
 **realtime reports**. Captures per-session token usage from Claude Code and Cowork,
 computes carbon, and POSTs to a central server that serves a live dashboard + CLI report.
 
-Modelled on CNaught's `carbonlog` plugin (`/path/to/carbonlog`) — the carbon
-calculator and transcript parser are vendored from it — but rebuilt for **central,
-multi-user** tracking with our own server instead of CNaught's cloud.
+Modelled on CNaught's `carbonlog` plugin — the carbon calculator and transcript parser
+are vendored from it — but rebuilt for **central, multi-user** tracking with your own
+server instead of CNaught's cloud.
 
-- **GitHub (private):** https://github.com/your-org/llm-usage-tracker
-- **Production server (Fly.io, your-org org):** https://your-server.example.com
+- **GitHub:** https://github.com/your-org/llm-usage-tracker
+- **Production server (Fly.io):** https://your-server.example.com
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Three parts share a vendored core:
   - `hooks/stop.ts` — Claude Code Stop hook entry (reads stdin via `hooks/stdin.ts`).
   - `sources/` — `source.ts` (interface + `toIngestEvent()`), `claude-code-source.ts`, `cowork-source.ts`. Pluggable; add new tools here.
   - `watch-cowork.ts` — long-running poller (Cowork has no hook surface).
-  - `config.ts` — `~/.config/claude-usage-tracker/config.json`. `post.ts`/`spool.ts` — POST + offline spool. `setup.ts`, `wire-hook.ts`.
+  - `config.ts` — `~/.config/llm-usage-tracker/config.json`. `post.ts`/`spool.ts` — POST + offline spool. `setup.ts`, `wire-hook.ts`.
 - **server/** — `index.ts` (`Bun.serve`: `/ingest`, `/events` SSE, `/api/*`, static dashboard), `db.ts` (SQLite, upsert by `(user_id, session_id)`, aggregations), `ingest.ts`, `schema.ts` (zod — **server only**), `sse.ts`, `public/` (vanilla JS + hand-rolled SVG charts).
 - **cli/report.ts** — `cut report` terminal report.
 
@@ -68,17 +68,19 @@ and a `cut report` (see README "Quick start").
 
 ## Config & data locations
 
-- Client config: `~/.config/claude-usage-tracker/config.json` (`serverUrl`, identity, surfaces)
-- Spool: `~/.config/claude-usage-tracker/spool.ndjson`
-- Server DB: `~/.config/claude-usage-tracker/server.db` locally; `/data/server.db` on Fly (volume)
+- Client config: `~/.config/llm-usage-tracker/config.json` (`serverUrl`, identity, surfaces)
+- Spool: `~/.config/llm-usage-tracker/spool.ndjson`
+- Server DB: `~/.config/llm-usage-tracker/server.db` locally; `/data/server.db` on Fly (volume)
 - Env overrides: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`, `LUT_DB_PATH`
 - Auth (fail-closed — unset secrets return 503): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + `/api/*` Basic Auth),
   `LUT_INGEST_TOKEN` (clients send on `/ingest`), `LUT_ALLOW_NO_AUTH=1` (explicit local-dev open). `/api/health` always open.
 
 ## Deployment (Fly.io)
 
-Hosted in the **your-org** org as app `llm-usage-tracker` (region `lhr`). SQLite persists
-on a Fly **volume** mounted at `/data` (`LUT_DB_PATH=/data/server.db` in `fly.toml`).
+Hosted on Fly.io as a single-machine app. SQLite persists on a Fly **volume** mounted at
+`/data` (`LUT_DB_PATH=/data/server.db` in `fly.toml`). The `app` name and region in
+`fly.toml` are placeholders — CI passes the real app via the `FLY_APP_NAME` secret (see
+`DEPLOY.md`).
 
 ```bash
 flyctl deploy                                 # build Dockerfile + deploy

@@ -18,7 +18,7 @@ const SCHEMA_VERSION = 1;
 export function defaultDbPath(): string {
     return (
         process.env.LUT_DB_PATH ||
-        join(homedir(), '.config', 'claude-usage-tracker', 'server.db')
+        join(homedir(), '.config', 'llm-usage-tracker', 'server.db')
     );
 }
 

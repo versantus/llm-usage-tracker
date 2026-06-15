@@ -6,7 +6,7 @@
  * automatically via hooks/hooks.json, so setup only records who you are and
  * where the server is — then flushes any spooled events and hints at Cowork.
  *
- *   bun run client/setup.ts --name "Nik" --email you@example.com \
+ *   bun run client/setup.ts --name "You" --email you@example.com \
  *       --server-url http://localhost:4317 [--no-cowork] [--wire-hook]
  */
 

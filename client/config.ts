@@ -1,6 +1,6 @@
 /**
  * Client config: identity + server URL, stored at
- * ~/.config/claude-usage-tracker/config.json. Env vars override for dev.
+ * ~/.config/llm-usage-tracker/config.json. Env vars override for dev.
  */
 
 import { createHash } from 'node:crypto';
@@ -20,7 +20,7 @@ export interface ClientConfig {
 }
 
 export function configDir(): string {
-    return join(homedir(), '.config', 'claude-usage-tracker');
+    return join(homedir(), '.config', 'llm-usage-tracker');
 }
 
 export function configPath(): string {

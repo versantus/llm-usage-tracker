@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "llm-usage-tracker",
-  "description": "your-org internal AI usage + carbon tracking",
+  "description": "Self-hosted AI usage + carbon tracking",
   "owner": {
     "name": "your-org"
   },

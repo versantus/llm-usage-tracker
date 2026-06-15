@@ -9,19 +9,20 @@ counted in the team's central usage + carbon dashboard. Takes about a minute.
 ## What you'll need
 
 - **Claude Code** installed.
-- Access to the private repo `your-org/llm-usage-tracker` (ask the team if the
-  next step can't find it).
+- Access to the repo `<your-org>/llm-usage-tracker` (if it's private, ask the team).
 - The **server URL** and an **ingest token** from whoever runs the server
-  (default server: `https://your-server.example.com`).
+  (e.g. `https://your-server.example.com`).
 
 ## 1. Add the marketplace and install the plugin
 
 In Claude Code, run:
 
 ```
-/plugin marketplace add your-org/llm-usage-tracker
+/plugin marketplace add <your-org>/llm-usage-tracker
 /plugin install usage-tracker@llm-usage-tracker
 ```
+
+(Replace `<your-org>` with the GitHub owner that hosts the repo.)
 
 The plugin wires a **Stop hook** automatically — no settings edits, no
 long-running process. After each session ends, it parses that session's
@@ -31,7 +32,7 @@ transcript, estimates the carbon, and reports the totals.
 <summary>No GitHub access? Install from a local clone instead</summary>
 
 ```bash
-git clone https://github.com/your-org/llm-usage-tracker.git
+git clone https://github.com/<your-org>/llm-usage-tracker.git
 ```
 
 Then in Claude Code:
@@ -95,7 +96,7 @@ npx -y bun ${CLAUDE_PLUGIN_ROOT}/client/watch-cowork.ts
 
 Only **token counts, model names, timestamps, and your name/email** are sent — no
 prompts, code, or file contents ever leave your machine. Config lives at
-`~/.config/claude-usage-tracker/config.json`; if the server is unreachable,
+`~/.config/llm-usage-tracker/config.json`; if the server is unreachable,
 events are spooled locally and retried on your next session.
 </content>
 </invoke>

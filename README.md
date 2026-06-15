@@ -1,7 +1,7 @@
-# claude-usage-tracker
+# llm-usage-tracker
 
-Centrally track Claude (and other AI tool) **usage and carbon estimates** across the
-org — by **user**, over **time** — with **realtime reports**.
+Centrally track Claude (and other AI tool) **usage and carbon estimates** across your
+team — by **user**, over **time** — with **realtime reports**.
 
 A small Bun + TypeScript system in three parts:
 
@@ -41,8 +41,8 @@ bun run client/setup.ts --name "You" --email you@example.com
 
 # 3a. Claude Code: install as a plugin (no remote repo needed for testing)
 #     In Claude Code:
-#       /plugin marketplace add /path/to/claude-usage-tracker
-#       /plugin install usage-tracker@claude-usage-tracker
+#       /plugin marketplace add /path/to/llm-usage-tracker
+#       /plugin install usage-tracker@llm-usage-tracker
 #     The Stop hook then reports every session automatically.
 
 # 3b. Cowork: run the watcher (Cowork has no hook surface)
@@ -76,9 +76,12 @@ marked approximate.
 
 ## Config & data locations
 
-- Client config: `~/.config/claude-usage-tracker/config.json`
-- Offline spool: `~/.config/claude-usage-tracker/spool.ndjson`
-- Server DB: `~/.config/claude-usage-tracker/server.db` (override `LUT_DB_PATH`)
+- Client config: `~/.config/llm-usage-tracker/config.json`
+- Offline spool: `~/.config/llm-usage-tracker/spool.ndjson`
+- Server DB: `~/.config/llm-usage-tracker/server.db` (override `LUT_DB_PATH`)
+
+> Upgrading from an older `claude-usage-tracker` install? The config dir moved —
+> re-run `/usage-tracker:setup` (or `mv ~/.config/claude-usage-tracker ~/.config/llm-usage-tracker`).
 - Env: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`
 - Auth (fail-closed): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + API), `LUT_INGEST_TOKEN`
   (clients), or `LUT_ALLOW_NO_AUTH=1` to run open locally. See [DEPLOY.md](./DEPLOY.md).

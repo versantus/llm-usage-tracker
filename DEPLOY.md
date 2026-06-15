@@ -14,11 +14,12 @@
 
 3. **Create the app and volume (first deploy only):**
    ```bash
-   cd /path/to/claude-usage-tracker
+   cd /path/to/llm-usage-tracker
    flyctl launch
    ```
    This will:
-   - Create an app called `llm-usage-tracker`
+   - Create your app — note the name you choose; it's referred to below as `<your-app>`
+     (the committed `fly.toml` ships a placeholder `app = 'your-app-name'`)
    - Prompt for a region (default `sjc` = San Jose; pick your preferred one)
    - Create a persistent volume named `data` for SQLite
    - Set up auto-deploy from your GitHub repo (optional, but recommended)
@@ -26,10 +27,14 @@
 4. **Push to GitHub and enable auto-deploy (optional):**
    ```bash
    git push origin main
-   # Then in Fly dashboard: https://fly.io/apps/llm-usage-tracker
-   # Settings → Source Control → Connect GitHub repo
-   # Auto-deploy main branch
+   # Then in Fly dashboard: https://fly.io/apps/<your-app>
+   # Settings → Source Control → Connect GitHub repo, auto-deploy main branch
    ```
+   The CI workflow (`.github/workflows/fly-deploy.yml`) deploys with
+   `flyctl deploy --app ${{ secrets.FLY_APP_NAME }}` because `fly.toml` holds a
+   placeholder app name. Add two repo secrets for it to work:
+   - `FLY_API_TOKEN` — from `flyctl tokens create deploy`
+   - `FLY_APP_NAME` — your real app name (`<your-app>`)
 
 ## Authentication (required — fail-closed)
 
@@ -42,7 +47,7 @@ flyctl secrets set \
   LUT_DASH_USER=admin \
   LUT_DASH_PASS="$(openssl rand -base64 18)" \
   LUT_INGEST_TOKEN="$(openssl rand -hex 24)" \
-  -a llm-usage-tracker
+  -a <your-app>
 ```
 
 - `LUT_DASH_PASS` (+ optional `LUT_DASH_USER`) → HTTP Basic Auth on the dashboard,
@@ -67,15 +72,15 @@ Or push to `main` if auto-deploy is enabled.
 
 After `flyctl launch`, Fly assigns a domain like:
 ```
-https://your-server.example.com
+https://<your-app>.fly.dev
 ```
 
 Update your client config to point to this URL:
 ```bash
-bun run client/setup.ts --server-url "https://your-server.example.com"
+bun run client/setup.ts --server-url "https://<your-app>.fly.dev"
 ```
 
-The hook will POST to `https://your-server.example.com/ingest` automatically.
+The hook will POST to `https://<your-app>.fly.dev/ingest` automatically.
 
 ## View logs
 

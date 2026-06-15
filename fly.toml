@@ -1,13 +1,16 @@
-# fly.toml — llm-usage-tracker (your-org, Fly.io)
+# fly.toml — llm-usage-tracker (Fly.io)
 #
 # Central LLM usage + carbon tracker. SQLite is single-writer, so this app runs as
 # ONE machine with a persistent volume mounted at /data. Do NOT scale to >1 machine
 # (each machine gets its own volume → split-brain data). See AGENTS.md / DEPLOY.md.
 #
+# `app` and `primary_region` below are placeholders — set your own with `flyctl launch`,
+# or override at deploy time with `flyctl deploy --app <name>`.
+#
 # See https://fly.io/docs/reference/configuration/ for the full reference.
 
-app = 'llm-usage-tracker'
-primary_region = 'lhr'
+app = 'your-app-name'
+primary_region = 'your-region'
 
 [build]
 

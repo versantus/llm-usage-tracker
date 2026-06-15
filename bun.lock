@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "claude-usage-tracker",
+      "name": "llm-usage-tracker",
       "dependencies": {
         "zod": "3.25.76",
       },
