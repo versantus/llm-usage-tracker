@@ -165,22 +165,69 @@ export function summaryByUser(db: Database, days?: number) {
         .all();
 }
 
-/** Per-model rollup. */
+/** Per-model rollup: breaks down sessions by their full models_used breakdown, not just primary_model. */
 export function summaryByModel(db: Database, days?: number) {
-    return db
+    const rows = db
         .query(
-            `SELECT primary_model AS model,
-                    COUNT(*) AS sessions,
-                    COALESCE(SUM(total_tokens), 0) AS tokens,
-                    COALESCE(SUM(energy_wh), 0) AS energy_wh,
-                    COALESCE(SUM(co2_grams), 0) AS co2_grams,
-                    MAX(carbon_approx) AS carbon_approx
+            `SELECT session_id, models_used, energy_wh, co2_grams, carbon_approx
              FROM sessions
-             ${sinceClause(days)}
-             GROUP BY primary_model
-             ORDER BY co2_grams DESC`
+             ${sinceClause(days)}`
         )
-        .all();
+        .all() as Array<{
+        session_id: string;
+        models_used: string;
+        energy_wh: number;
+        co2_grams: number;
+        carbon_approx: number;
+    }>;
+
+    // Expand each session's models_used into per-model rows, aggregate
+    const byModel: Record<
+        string,
+        { sessions: number; tokens: number; energy_wh: number; co2_grams: number; carbon_approx: number }
+    > = {};
+
+    for (const row of rows) {
+        let modelsUsed: Record<string, number> = {};
+        try {
+            modelsUsed = JSON.parse(row.models_used) || {};
+        } catch {
+            // ignore malformed JSON
+        }
+
+        const totalTokens = Object.values(modelsUsed).reduce((a, b) => a + b, 0) || 1;
+        const sessionCount = Object.keys(modelsUsed).length || 1;
+
+        for (const [model, tokens] of Object.entries(modelsUsed)) {
+            if (!byModel[model]) {
+                byModel[model] = {
+                    sessions: 0,
+                    tokens: 0,
+                    energy_wh: 0,
+                    co2_grams: 0,
+                    carbon_approx: 0
+                };
+            }
+            // Proportional allocation of energy/co2 to each model based on token share
+            const share = (tokens as number) / totalTokens;
+            byModel[model].sessions += 1 / sessionCount;
+            byModel[model].tokens += (tokens as number);
+            byModel[model].energy_wh += row.energy_wh * share;
+            byModel[model].co2_grams += row.co2_grams * share;
+            byModel[model].carbon_approx = Math.max(byModel[model].carbon_approx, row.carbon_approx);
+        }
+    }
+
+    return Object.entries(byModel)
+        .map(([model, data]) => ({
+            model,
+            sessions: Math.round(data.sessions),
+            tokens: data.tokens,
+            energy_wh: data.energy_wh,
+            co2_grams: data.co2_grams,
+            carbon_approx: data.carbon_approx
+        }))
+        .sort((a, b) => b.co2_grams - a.co2_grams);
 }
 
 /** Per-provider rollup. */

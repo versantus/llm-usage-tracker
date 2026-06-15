@@ -1,39 +1,36 @@
-# Fly.io config for claude-usage-tracker
-# Deploy with: flyctl launch (first time) or flyctl deploy (subsequent)
+# fly.toml — llm-usage-tracker (your-org, Fly.io)
+#
+# Central LLM usage + carbon tracker. SQLite is single-writer, so this app runs as
+# ONE machine with a persistent volume mounted at /data. Do NOT scale to >1 machine
+# (each machine gets its own volume → split-brain data). See AGENTS.md / DEPLOY.md.
+#
+# See https://fly.io/docs/reference/configuration/ for the full reference.
 
-app = "llm-usage-tracker"
-primary_region = "sjc"  # San Jose (US West) — change to your preferred region
+app = 'llm-usage-tracker'
+primary_region = 'lhr'
 
 [build]
-dockerfile = "Dockerfile"
 
 [env]
-CUT_DB_PATH = "/data/server.db"
-CUT_PORT = "4317"
+  CUT_DB_PATH = '/data/server.db'
+  CUT_PORT = '4317'
 
 [[mounts]]
-source = "data"
-destination = "/data"
-
-[[services]]
-protocol = "tcp"
-internal_port = 4317
-processes = ["app"]
-
-[[services.ports]]
-port = 80
-handlers = ["http"]
-force_https = true
-
-[[services.ports]]
-port = 443
-handlers = ["tls", "http"]
+  source = 'data'
+  destination = '/data'
 
 [http_service]
-internal_port = 4317
-force_https = true
+  internal_port = 4317
+  force_https = true
+  # Keep one machine always running so the central store is always reachable and
+  # never split across machines. auto_stop is disabled deliberately.
+  auto_stop_machines = 'off'
+  auto_start_machines = false
+  min_machines_running = 1
+  processes = ['app']
 
 [[vm]]
-cpu_kind = "shared"
-cpus = 1
-memory_mb = 256
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 1024
