@@ -18,7 +18,7 @@
    flyctl launch
    ```
    This will:
-   - Create an app called `claude-usage-tracker`
+   - Create an app called `llm-usage-tracker`
    - Prompt for a region (default `sjc` = San Jose; pick your preferred one)
    - Create a persistent volume named `data` for SQLite
    - Set up auto-deploy from your GitHub repo (optional, but recommended)
@@ -26,7 +26,7 @@
 4. **Push to GitHub and enable auto-deploy (optional):**
    ```bash
    git push origin main
-   # Then in Fly dashboard: https://fly.io/apps/claude-usage-tracker
+   # Then in Fly dashboard: https://fly.io/apps/llm-usage-tracker
    # Settings → Source Control → Connect GitHub repo
    # Auto-deploy main branch
    ```
