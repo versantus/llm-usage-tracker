@@ -1,0 +1,28 @@
+{
+  "name": "claude-usage-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Centrally track Claude (and other AI tool) usage and carbon estimates across an org, by user, over time.",
+  "type": "module",
+  "packageManager": "bun@1.3.6",
+  "bin": {
+    "cut": "./cli/report.ts",
+    "cut-server": "./server/index.ts",
+    "cut-setup": "./client/setup.ts",
+    "cut-stop-hook": "./client/hooks/stop.ts",
+    "cut-watch-cowork": "./client/watch-cowork.ts"
+  },
+  "scripts": {
+    "server": "bun run server/index.ts",
+    "setup": "bun run client/setup.ts",
+    "report": "bun run cli/report.ts",
+    "watch-cowork": "bun run client/watch-cowork.ts"
+  },
+  "dependencies": {
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-usage-tracker",
+  "description": "your-org internal AI usage + carbon tracking",
+  "owner": {
+    "name": "your-org"
+  },
+  "plugins": [
+    {
+      "name": "usage-tracker",
+      "description": "Track Claude usage and carbon estimates per user, reporting to a central server. Includes /usage-tracker:setup, :report and :dashboard commands.",
+      "source": "./"
+    }
+  ]
+}

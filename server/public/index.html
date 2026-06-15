@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claude Usage Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+    <header>
+        <div class="title">
+            <h1>Claude Usage Tracker</h1>
+            <span class="live" id="live">● live</span>
+        </div>
+        <div class="controls">
+            <label for="range">Range</label>
+            <select id="range">
+                <option value="0">All time</option>
+                <option value="7" selected>Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+            </select>
+        </div>
+    </header>
+
+    <section class="cards" id="cards"></section>
+
+    <section class="grid">
+        <div class="panel">
+            <h2>CO₂ by user over time</h2>
+            <div id="chart-time" class="chart"></div>
+        </div>
+        <div class="panel">
+            <h2>Tokens by model</h2>
+            <div id="chart-model" class="chart"></div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h2>Users</h2>
+        <table id="user-table">
+            <thead>
+                <tr>
+                    <th>User</th><th>Email</th><th class="num">Sessions</th>
+                    <th class="num">Tokens</th><th class="num">Energy</th><th class="num">CO₂</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+    <footer>
+        <span id="providers"></span>
+        Carbon via Jegham et al. (arXiv 2505.09598). Non-Anthropic models are approximate.
+    </footer>
+
+    <script src="/dashboard.js"></script>
+</body>
+</html>
