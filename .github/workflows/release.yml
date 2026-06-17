@@ -1,0 +1,35 @@
+# Build the `lut` CLI for every platform and attach the binaries to a GitHub
+# Release, so install.sh / install.ps1 can download prebuilt binaries (no bun
+# needed on the user's machine).
+#
+# Trigger by pushing a tag:  git tag v0.2.0 && git push origin v0.2.0
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Build all targets
+        run: ./scripts/build-cli.sh --all
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/lut-darwin-arm64
+            dist/lut-darwin-x64
+            dist/lut-linux-x64
+            dist/lut-linux-arm64
+            dist/lut-windows-x64.exe
+          fail_on_unmatched_files: true

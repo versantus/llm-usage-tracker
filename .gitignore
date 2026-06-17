@@ -1,4 +1,11 @@
 node_modules/
+
+# Swift / macOS app build artifacts
+macos-app/.build/
+macos-app/UsageTracker.app/
+
+# Compiled `lut` CLI binaries
+dist/
 *.db
 *.db-wal
 *.db-shm
