@@ -1,106 +1,96 @@
-# Tracking more tools: Gemini, Copilot, Cursor
+# Tracking more tools: Gemini, Copilot, Ollama, Cursor
 
-Research notes on extending the tracker to **Gemini CLI**, **GitHub Copilot**, and
-**Cursor**, based on what each writes to disk and on how
+How the tracker covers tools beyond Claude Code / Codex / Cowork. Based on what
+each writes to disk and on how
 [Agent Cat's connectors](https://github.com/yong076/agentcat-connectors) do it
-(its open-source collector was inspected directly at
-`~/.agentcat/connectors/bin/agentcat`).
+(its collector was read directly at `~/.agentcat/connectors/bin/agentcat`).
 
-TL;DR feasibility:
+| Tool | Local data? | Source | Status |
+|------|-------------|--------|--------|
+| **Gemini CLI** | Only with telemetry on | OTLP telemetry log | ✅ implemented, fixture-verified |
+| **GitHub Copilot** | Yes (partial) | CLI logs + VS Code transcripts | ✅ implemented, fixture-verified |
+| **Ollama (desktop)** | Yes | desktop `db.sqlite` | ✅ implemented, verified on real db |
+| **Ollama (CLI)** | **No** | — | ❌ not locally recoverable |
+| **Cursor** | **No** | Admin API (server-side) | ⚠️ implemented, unverified (needs team key) |
 
-| Tool | Local token data? | Approach | Carbon |
-|------|-------------------|----------|--------|
-| **Gemini CLI** | Only if OpenTelemetry is enabled | Turn on telemetry → parse the local OTLP log | approx (no validated Gemini config) |
-| **GitHub Copilot** | Yes (partial) | Parse local CLI logs + VS Code chat transcripts | approx (output often char-estimated) |
-| **Cursor** | **No** | Server-side Admin API only — not a local hook | n/a locally |
-
-The existing `Provider`/`Surface` unions in `shared/types.ts` already include
-`google`, `openai`, `cursor`, so adding these is mostly new *sources*.
+All carbon for these is **approximate** — none has a validated energy config, and
+output tokens are often char-estimated (Copilot/Ollama) rather than measured.
+The new surfaces (`gemini-cli`, `copilot`, `ollama`) and provider `cursor` are in
+`shared/types.ts` + the server's ingest `schema.ts`, so **the server must be
+redeployed** before it will accept them (older servers 400 unknown surfaces).
 
 ---
 
-## Gemini CLI — feasible via telemetry
+## Gemini CLI — `client/sources/gemini-source.ts`
 
-Gemini CLI does **not** persist token usage in its session logs. `~/.gemini/tmp/<hash>/logs.json`
-holds prompts and `chats/*.json` holds message content, but neither has token
-counts (confirmed: no `tokenCount`/`usageMetadata` anywhere under `~/.gemini`).
+Gemini doesn't persist tokens in its session logs, but emits OpenTelemetry. We
+read whatever `telemetry.outfile` is configured in `~/.gemini/settings.json`
+(co-existing with Agent Cat instead of fighting over the single outfile), and sum
+the **`gemini_cli.token.usage`** metric (fallback `gen_ai.client.token.usage`),
+grouped by `session.id`. Token classes (input/output/cache/thought) come from the
+data-point attributes; it's a cumulative counter so we take the max per class.
 
-It *does* emit OpenTelemetry. Agent Cat enables it by writing this into
-`~/.gemini/settings.json` (seen live on this machine — Agent Cat set it):
+`lut gemini enable` turns on local telemetry (writes the `telemetry` block to
+`~/.gemini/settings.json`, defaulting `outfile` to
+`~/.config/llm-usage-tracker/gemini-telemetry.log`) and starts the watcher.
 
-```json
-"telemetry": {
-  "enabled": true,
-  "logPrompts": false,
-  "outfile": "/Users/<you>/.agentcat/gemini/telemetry.log",
-  "target": "local"
-}
+Verified against a synthetic OTLP fixture (cumulative max + reasoning folded into
+output). On this machine the live log is still empty (Gemini hasn't run since
+telemetry was enabled), so end-to-end with real Gemini data is still pending.
+
+## GitHub Copilot — `client/sources/copilot-source.ts`
+
+Two local sources: the CLI's `~/.copilot/session-state/<hash>/events.jsonl` and
+VS Code's `<workspaceStorage>/<hash>/GitHub.copilot-chat/transcripts/*.jsonl`
+(`session.start` with `producer:copilot-agent`). Output tokens come from
+`data.outputTokens` when present, else a char/4 estimate of the content;
+`reasoningText` adds reasoning. Model is inferred from `data.model` / tool-call-id
+prefixes. One file = one session.
+
+Verified against a synthetic transcript fixture. No real Copilot data on this
+machine to confirm end-to-end.
+
+## Ollama — `client/sources/ollama-source.ts`
+
+The **desktop app** keeps chats in `~/Library/Application Support/Ollama/db.sqlite`
+(`messages` table: role, content, thinking, model_name, chat_id, timestamps). One
+chat = one session; user/tool messages → input, assistant+thinking → output (all
+char-estimated — the db stores no token counts); model is the dominant
+`model_name`. Verified against the real db (19 chats parsed).
+
+The **Ollama CLI is not covered**: it persists no per-request token/model data
+locally (the server log has no clean per-request counts; `~/.ollama/history` is
+just typed prompts). Capturing CLI usage would need an API proxy in front of
+`localhost:11434` — out of scope.
+
+> ⚠️ Ollama runs on **local hardware**, so the datacenter-based carbon model is a
+> poor fit; treat Ollama carbon as a very rough placeholder.
+
+## Cursor — `client/cursor-pull.ts` (server-side)
+
+Cursor keeps usage on its servers — there's no local file, and Agent Cat doesn't
+track it either. The only path is the **Admin API** (team owner key). Unlike the
+others this is a *pull*, not a local watcher:
+
+```bash
+CURSOR_API_KEY=key_... lut cursor-pull --days 30
 ```
 
-Then it tails that OTLP log and sums the metric **`gemini_cli.token.usage`**
-(falling back to `gen_ai.client.token.usage`), reading incrementally with an
-offset/size bookmark. Token classes (input/output/cache) come from the metric's
-attributes; the model from the resource/scope attributes.
+It POSTs `teams/filtered-usage-events`, then ingests one event per usage event on
+behalf of each member (keyed by event id, so the server upserts). Best run on the
+server host on a schedule (cron/systemd), not on each laptop.
 
-**Plan for us:** `lut gemini enable` writes the telemetry block into
-`~/.gemini/settings.json` (read-modify-write, our own outfile under
-`~/.config/llm-usage-tracker/gemini-telemetry.log`), then a `watch-gemini`
-watcher tails it and reports per-session absolute totals. Carbon is approximate
-(no validated Gemini energy config — falls back like other non-Anthropic models).
-
-> ⚠️ Verification: on this machine the telemetry log is currently **empty**
-> (`status: no_token_events_yet`) — Gemini hasn't run since telemetry was turned
-> on, so the parser needs a live Gemini session (or a synthetic OTLP fixture) to
-> verify end-to-end before shipping.
+> ⚠️ **Unverified** — written to Cursor's documented Admin API shape but not yet
+> run against a real key; field names may need tweaking once tested.
 
 ---
 
-## GitHub Copilot — feasible from local logs
+## Activating the new watchers
 
-Two local sources (Agent Cat reads both):
+```bash
+lut copilot enable     # or gemini / ollama
+lut status             # shows every surface's state
+```
 
-1. **Copilot CLI** — `~/.copilot/session-state/<workspace-hash>/events.jsonl`
-2. **VS Code Copilot Chat** —
-   `<workspaceStorage>/<hash>/GitHub.copilot-chat/transcripts/*.jsonl`
-   (workspaceStorage = `~/Library/Application Support/Code/User/workspaceStorage`
-   on macOS; `~/.config/Code/...` on Linux; `%APPDATA%/Code/...` on Windows).
-
-Transcript shape: first line `{"type":"session.start","data":{"producer":"copilot-agent"}}`,
-then `user.message` (→ input) and `assistant.message` events. Output tokens come
-from `data.outputTokens` when present, else a **char/4 estimate** of
-`data.content`; `data.reasoningText` adds reasoning tokens; `data.toolRequests`
-gives the tool breakdown.
-
-**Plan for us:** a `copilot-source` parsing those JSONL files (absolute per-file
-totals, upsert dedups) + `lut copilot enable` watcher. Carbon approximate —
-output is frequently estimated, not measured.
-
-> ⚠️ Verification: this machine has **no Copilot data** (`~/.copilot/session-state`
-> absent; no `GitHub.copilot-chat/transcripts`), so Agent Cat reports Copilot
-> `tokens: 0`. Needs a synthetic transcript fixture or a real Copilot session to
-> verify.
-
----
-
-## Cursor — not trackable locally
-
-Agent Cat **does not track Cursor** — there is no Cursor token source in its
-collector (every "cursor" reference in its code is the JSONL *offset* bookmark,
-not the editor). Cursor keeps per-request usage **server-side**; its local
-`state.vscdb` only exposes coarse signals like `aiCodeTrackingLines`, not tokens.
-
-The only real path is **Cursor's Admin API** (team owners, requires an API key):
-a *server-side* puller that pulls per-member usage on a schedule and ingests it —
-not a local hook. That belongs on the central server, not in `lut`. Out of scope
-for the local-watcher model unless we add a server-side connector.
-
----
-
-## Suggested implementation order
-
-1. **Copilot** — pure local-file parsing, fits the existing source/watcher
-   pattern exactly; just needs a fixture to verify.
-2. **Gemini** — adds settings.json telemetry wiring + an OTLP tail; verify with a
-   live session.
-3. **Cursor** — only if we want a server-side Admin-API puller; different shape
-   from the local watchers.
+Or in the desktop app: Settings → toggles appear for each detected tool. `lut
+connect` auto-enables every detected surface.

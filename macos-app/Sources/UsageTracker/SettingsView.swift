@@ -109,24 +109,18 @@ struct SettingsView: View {
                 Spacer()
             }
 
-            if connector.codexAvailable || connector.coworkAvailable {
+            let watchers = connector.surfaces.filter(\.available)
+            if !watchers.isEmpty {
                 Divider()
-                Text("These have no hook, so a small background watcher reports their sessions.")
+                Text("These tools have no hook, so a small background watcher reports their sessions.")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-            if connector.codexAvailable {
-                Toggle("Also track Codex CLI", isOn: Binding(
-                    get: { connector.codexEnabled },
-                    set: { connector.setWatcher("codex", $0) }
-                ))
-                .disabled(connector.busy)
-            }
-            if connector.coworkAvailable {
-                Toggle("Also track Cowork", isOn: Binding(
-                    get: { connector.coworkEnabled },
-                    set: { connector.setWatcher("cowork", $0) }
-                ))
-                .disabled(connector.busy)
+                ForEach(watchers) { s in
+                    Toggle("Also track \(s.label)", isOn: Binding(
+                        get: { s.enabled },
+                        set: { connector.setWatcher(s.id, $0) }
+                    ))
+                    .disabled(connector.busy)
+                }
             }
 
             if let m = connector.lastMessage {

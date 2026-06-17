@@ -78,31 +78,52 @@ needs bun/node available.)
 
 ---
 
-## Codex CLI & Cowork tracking
+## Tracking other tools (no hook)
 
-Codex and Cowork have no Stop-style hook, so each is tracked by a small
-**watcher** that reads their local session logs and reports absolute token
-totals (the server upserts, so nothing is double-counted):
+Tools without a Stop-style hook are tracked by small **watchers** that read their
+local session data and report absolute totals (the server upserts, so nothing is
+double-counted). Supported surfaces:
 
-- **Codex CLI** — `~/.codex/sessions/**/rollout-*.jsonl`. Carbon for OpenAI
-  models is a rough estimate, flagged approximate.
-- **Cowork** (Claude local agent mode) —
-  `~/Library/Application Support/Claude/local-agent-mode-sessions/**/audit.jsonl`.
+| Surface | Reads | Notes |
+|---------|-------|-------|
+| `codex`   | `~/.codex/sessions/**/rollout-*.jsonl` | OpenAI carbon ≈ approximate |
+| `cowork`  | `…/Claude/local-agent-mode-sessions/**/audit.jsonl` | Claude local agent mode |
+| `copilot` | `~/.copilot/session-state/*` + VS Code `GitHub.copilot-chat/transcripts` | output often estimated |
+| `gemini`  | OTLP telemetry log (enabled in `~/.gemini/settings.json`) | needs telemetry on |
+| `ollama`  | desktop app `db.sqlite` | **desktop only** — CLI isn't logged |
 
-Options A and B enable these automatically when detected. To manage them by hand
-(same commands for either surface):
+Options A and B enable every detected surface automatically. To manage by hand
+(same verbs for any surface):
 
 ```bash
-lut codex  enable | disable | status
-lut cowork enable | disable | status
-lut scan-codex  [--hours N | --all]   # one-off backfill
-lut scan-cowork                       # one-off backfill
+lut codex   enable | disable | status
+lut copilot enable | disable | status
+lut gemini  enable | disable | status   # also turns on Gemini telemetry
+lut ollama  enable | disable | status
+lut scan-<surface> [--hours N | --all]  # one-off backfill
+lut status                              # state of every surface
 ```
 
 `enable` installs a macOS LaunchAgent that runs the watcher at login. On
-Linux/Windows there's no LaunchAgent — run `lut watch-codex` / `lut watch-cowork`
-under your own service manager (systemd / Task Scheduler), or `lut scan-*` on a
-schedule.
+Linux/Windows there's no LaunchAgent — run `lut watch-<surface>` under your own
+service manager (systemd / Task Scheduler), or `lut scan-<surface>` on a schedule.
+
+Carbon for all of these is **approximate** (no validated energy config; Ollama
+runs on local hardware so its figure is especially rough).
+
+### Cursor (server-side)
+
+Cursor keeps usage on its servers, so there's no local watcher. A team admin
+pulls it via the Admin API and ingests it — best run on the server host on a
+schedule, not per laptop:
+
+```bash
+CURSOR_API_KEY=key_... lut cursor-pull --days 30
+```
+
+> The `copilot` / `gemini` / `ollama` / `cursor` surfaces need a server built
+> from this version (older servers reject unknown surfaces). Redeploy the server
+> after upgrading.
 
 ---
 

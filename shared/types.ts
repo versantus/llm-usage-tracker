@@ -10,7 +10,15 @@
 export type Provider = 'anthropic' | 'openai' | 'google' | 'cursor' | 'unknown';
 
 /** Which surface/tool the session ran in. */
-export type Surface = 'claude-code' | 'cowork' | 'codex-cli' | 'cursor' | 'unknown';
+export type Surface =
+    | 'claude-code'
+    | 'cowork'
+    | 'codex-cli'
+    | 'gemini-cli'
+    | 'copilot'
+    | 'ollama'
+    | 'cursor'
+    | 'unknown';
 
 /**
  * A single API request's token usage, parsed from a transcript line.

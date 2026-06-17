@@ -10,11 +10,24 @@ final class ClaudeConnector: ObservableObject {
     @Published var busy: Bool = false
     @Published var lastMessage: String?
 
-    /// Background-watcher surfaces (no Stop-style hook): presence + enabled state.
-    @Published var codexAvailable = false
-    @Published var codexEnabled = false
-    @Published var coworkAvailable = false
-    @Published var coworkEnabled = false
+    /// Watcher surfaces (no Stop-style hook), with live presence + enabled state.
+    @Published var surfaces: [SurfaceState] = []
+
+    struct SurfaceState: Identifiable {
+        let id: String        // the `lut` surface name
+        let label: String
+        var available: Bool
+        var enabled: Bool
+    }
+
+    /// id, label, and the path whose existence means "this tool is present".
+    private let surfaceDefs: [(id: String, label: String, probe: String)] = [
+        ("codex", "Codex CLI", ".codex/sessions"),
+        ("cowork", "Cowork", "Library/Application Support/Claude/local-agent-mode-sessions"),
+        ("copilot", "GitHub Copilot", ".copilot"),
+        ("gemini", "Gemini CLI", ".gemini"),
+        ("ollama", "Ollama (desktop)", "Library/Application Support/Ollama/db.sqlite")
+    ]
 
     private let home = FileManager.default.homeDirectoryForCurrentUser
 
@@ -40,14 +53,23 @@ final class ClaudeConnector: ObservableObject {
     func refreshState() {
         let fm = FileManager.default
         connected = hookIsWired()
-        codexAvailable = fm.fileExists(atPath: sessionsDir(".codex/sessions").path)
-        codexEnabled = fm.fileExists(atPath: agentPlist("codex").path)
-        coworkAvailable = fm.fileExists(
-            atPath: sessionsDir("Library/Application Support/Claude/local-agent-mode-sessions").path)
-        coworkEnabled = fm.fileExists(atPath: agentPlist("cowork").path)
+        surfaces = surfaceDefs.map { def in
+            var available = fm.fileExists(atPath: sessionsDir(def.probe).path)
+            if def.id == "copilot" && !available {
+                // Copilot also lives in VS Code workspaceStorage.
+                available = fm.fileExists(
+                    atPath: sessionsDir("Library/Application Support/Code/User/workspaceStorage").path)
+            }
+            return SurfaceState(
+                id: def.id,
+                label: def.label,
+                available: available,
+                enabled: fm.fileExists(atPath: agentPlist(def.id).path)
+            )
+        }
     }
 
-    /// Toggle a background watcher (`codex` or `cowork`) via the installed binary.
+    /// Toggle a background watcher via the installed binary.
     func setWatcher(_ surface: String, _ on: Bool) {
         busy = true
         lastMessage = nil
