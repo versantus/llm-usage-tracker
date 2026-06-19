@@ -45,6 +45,10 @@ struct UsageTrackerApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Force dark Aqua app-wide so default label/control colors stay light on
+        // our dark backgrounds, even when macOS is in Light mode. (SwiftUI's
+        // .preferredColorScheme didn't reliably reach the window content.)
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         MainActor.assumeIsolated { appStore.start() }
     }
 }
