@@ -34,6 +34,12 @@ data-point attributes; it's a cumulative counter so we take the max per class.
 `~/.gemini/settings.json`, defaulting `outfile` to
 `~/.config/llm-usage-tracker/gemini-telemetry.log`) and starts the watcher.
 
+**Antigravity CLI** (Google's successor to gemini-cli, which it replaces) shares
+the same `~/.gemini` config and OTEL telemetry, so it's tracked by the *same
+opt-in* — no separate surface. The parser also accepts an
+`antigravity_cli.token.usage` vendor metric in case it's renamed; the standard
+`gen_ai.client.token.usage` is handled regardless.
+
 Verified against a synthetic OTLP fixture (cumulative max + reasoning folded into
 output). On this machine the live log is still empty (Gemini hasn't run since
 telemetry was enabled), so end-to-end with real Gemini data is still pending.

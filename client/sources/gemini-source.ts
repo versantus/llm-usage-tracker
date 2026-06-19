@@ -144,8 +144,11 @@ interface Agg {
 /** Parse the telemetry file into per-session aggregates (cumulative -> max). */
 export function parseGeminiTelemetry(text: string): Map<string, Agg> {
     const sessions = new Map<string, Agg>();
-    const PREF = 'gemini_cli.token.usage';
-    const ALT = 'gen_ai.client.token.usage';
+    // Vendor metric uses `type`/`model` attributes; gemini-cli and its successor
+    // Antigravity CLI share the same OTEL telemetry. The GenAI standard metric
+    // uses `gen_ai.*` attributes. We accept all of them.
+    const VENDOR_METRICS = ['gemini_cli.token.usage', 'antigravity_cli.token.usage'];
+    const STD = 'gen_ai.client.token.usage';
 
     for (const payload of jsonObjects(text)) {
         const resources = Array.isArray(payload?.resourceMetrics)
@@ -155,8 +158,8 @@ export function parseGeminiTelemetry(text: string): Map<string, Agg> {
             for (const scope of rm?.scopeMetrics || []) {
                 for (const metric of scope?.metrics || []) {
                     const name = metric?.descriptor?.name ?? metric?.name;
-                    const isPref = name === PREF;
-                    if (!isPref && name !== ALT) continue;
+                    const isPref = VENDOR_METRICS.includes(name);
+                    if (!isPref && name !== STD) continue;
                     const points = metric?.dataPoints || metric?.sum?.dataPoints || [];
                     for (const pt of points) {
                         const attrs = (pt?.attributes && typeof pt.attributes === 'object') ? pt.attributes : {};

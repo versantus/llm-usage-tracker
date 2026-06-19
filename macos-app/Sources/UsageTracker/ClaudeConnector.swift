@@ -25,7 +25,7 @@ final class ClaudeConnector: ObservableObject {
         ("codex", "Codex CLI", ".codex/sessions"),
         ("cowork", "Cowork", "Library/Application Support/Claude/local-agent-mode-sessions"),
         ("copilot", "GitHub Copilot", ".copilot"),
-        ("gemini", "Gemini CLI", ".gemini"),
+        ("gemini", "Gemini / Antigravity CLI", ".gemini"),
         ("ollama", "Ollama (desktop)", "Library/Application Support/Ollama/db.sqlite")
     ]
 
