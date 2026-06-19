@@ -19,9 +19,12 @@ Add-Type -AssemblyName System.Drawing
 
 # --- locate lut.exe -------------------------------------------------------
 function Find-Lut {
+    # Prefer the exact lut that launched us (set by `lut gui`).
+    if ($env:LUT_BIN -and (Test-Path $env:LUT_BIN)) { return $env:LUT_BIN }
     $candidates = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\llm-usage-tracker\lut.exe'),
         (Join-Path $env:USERPROFILE '.local\bin\lut.exe'),
+        (Join-Path $env:USERPROFILE 'lut\lut.exe'),
         'lut.exe'
     )
     foreach ($c in $candidates) {

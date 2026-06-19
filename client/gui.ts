@@ -2,15 +2,23 @@
  * `lut gui` — the Windows tray + settings GUI, embedded in the binary.
  *
  * The tray UI is a PowerShell + WinForms script (windows-app/UsageTracker.ps1)
- * that's compiled into this binary as text. On `lut gui` we launch it hidden via
- * `powershell -EncodedCommand` — no separate script file to install, no temp
- * file written. The script calls back into this same `lut` for connect/watch.
+ * compiled into this binary as text. `lut gui` writes it to a file and runs it,
+ * and KEEPS RUNNING as the host: if we spawned-and-exited, Windows would tear
+ * the child down with the parent (job object) and the tray would never appear.
+ * We pass our own path via $env:LUT_BIN so the tray drives the exact same `lut`.
+ *
+ *   lut gui            run hidden, host the tray (Ctrl-C or tray Quit to stop)
+ *   lut gui --debug    run visible with errors shown (for troubleshooting)
  */
+
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 // Embedded at compile time (bun `with { type: 'text' }`); also works under `bun run`.
 import trayScript from '../windows-app/UsageTracker.ps1' with { type: 'text' };
 
-export function launchGui(): void {
+export async function launchGui(opts: { debug?: boolean } = {}): Promise<void> {
     if (process.platform !== 'win32') {
         console.error(
             'The tray GUI is Windows-only.\n' +
@@ -20,22 +28,30 @@ export function launchGui(): void {
         process.exit(1);
     }
 
-    // PowerShell -EncodedCommand expects base64 of UTF-16LE. `#Requires` lines
-    // are treated as comments in this mode, which is fine.
-    const b64 = Buffer.from(trayScript, 'utf16le').toString('base64');
-    const child = Bun.spawn(
-        [
-            'powershell',
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-WindowStyle',
-            'Hidden',
-            '-EncodedCommand',
-            b64
-        ],
-        { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' }
-    );
-    child.unref();
-    console.error('Tray GUI launched — look for the system-tray icon (bottom-right, maybe under the ^).');
+    // Materialise the embedded script so we can run it with -File (easier to
+    // debug than -EncodedCommand, and no command-line length limit).
+    const dir = join(process.env.LOCALAPPDATA || homedir(), 'llm-usage-tracker');
+    mkdirSync(dir, { recursive: true });
+    const scriptPath = join(dir, 'tray.ps1');
+    writeFileSync(scriptPath, trayScript, 'utf8');
+
+    const psArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass'];
+    if (!opts.debug) psArgs.push('-WindowStyle', 'Hidden');
+    psArgs.push('-File', scriptPath);
+
+    const child = Bun.spawn(['powershell', ...psArgs], {
+        // Tell the tray which lut to drive (itself), so it never has to guess.
+        env: { ...process.env, LUT_BIN: process.execPath },
+        stdin: 'inherit',
+        stdout: 'inherit',
+        stderr: 'inherit'
+    });
+
+    if (opts.debug) {
+        console.error(`Running tray GUI (visible/debug) from ${scriptPath} …`);
+    } else {
+        console.error('Tray GUI started — look for the system-tray icon. This window hosts it; closing it stops the tray.');
+    }
+    // Stay alive while the tray runs — exiting now would kill the child on Windows.
+    await child.exited;
 }

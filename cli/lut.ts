@@ -387,7 +387,7 @@ if (cmd === 'hook') {
 } else if (cmd === 'cursor-pull') {
     await cmdCursorPull();
 } else if (cmd === 'gui' || cmd === 'tray') {
-    launchGui();
+    await launchGui({ debug: has('debug') });
 } else if (cmd === 'status') {
     await cmdStatus();
 } else if (cmd === 'report') {

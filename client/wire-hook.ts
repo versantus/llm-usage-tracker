@@ -43,9 +43,10 @@ function commandsOf(entry: any): string[] {
     return out;
 }
 
-/** Recognise a command we own: the `lut … hook` binary or the legacy script. */
+/** Recognise a command we own: the `lut … hook` binary or the legacy script.
+ *  Matches macOS ("…/lut" hook) and Windows ("…\lut.exe" hook) forms. */
 function isOurCommand(c: string): boolean {
-    return c.includes('hooks/stop.ts') || /(^|[/"\s])lut"?\s+hook\b/.test(c);
+    return c.includes('hooks/stop.ts') || /(^|[/\\"\s])lut(\.exe)?"?\s+hook\b/i.test(c);
 }
 
 /** Recognise a Stop-hook entry we own (binary or legacy script form). */
