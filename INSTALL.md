@@ -60,6 +60,12 @@ dashboard locally **and** sets everything up for you:
 The app bundles the same `lut` binary and runs it under the hood, so the result
 is identical to Option A.
 
+**Windows** has an equivalent tray app (settings window + system-tray icon),
+see [windows-app/](./windows-app/) — after the CLI install, run:
+```powershell
+irm https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/windows-app/install-tray.ps1 | iex
+```
+
 ---
 
 ## Option C — the Claude Code plugin
