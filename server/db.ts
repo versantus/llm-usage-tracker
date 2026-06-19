@@ -154,17 +154,20 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
     });
 }
 
+// Time-range filters use `updated_at` (session ACTIVE within the window), not
+// `started_at`. Long-lived sessions — Cowork especially — can start days ago but
+// still be appended to now; filtering by started_at hid that recent activity.
 function sinceClause(days?: number): string {
     if (!days || days <= 0) return '';
     const since = new Date(Date.now() - days * 86400_000).toISOString();
-    return `WHERE started_at >= '${since}'`;
+    return `WHERE updated_at >= '${since}'`;
 }
 
 /** Like sinceClause but for appending to an existing WHERE (e.g. WHERE user_id = ?). */
 function andSince(days?: number): string {
     if (!days || days <= 0) return '';
     const since = new Date(Date.now() - days * 86400_000).toISOString();
-    return ` AND started_at >= '${since}'`;
+    return ` AND updated_at >= '${since}'`;
 }
 
 type ModelRow = {
@@ -276,11 +279,12 @@ export function summaryByProvider(db: Database, days?: number) {
 /**
  * Time-series bucket: hourly for short ranges (≤ 2 days, e.g. the 12h/24h views),
  * daily otherwise. Hourly keys carry a 'T' so the frontend can format them as times.
+ * Bucketed by `updated_at` to match the range filter (when a session was active).
  */
 function timeBucket(days?: number): string {
     return days != null && days > 0 && days <= 2
-        ? `strftime('%Y-%m-%dT%H:00', started_at)`
-        : `date(started_at)`;
+        ? `strftime('%Y-%m-%dT%H:00', updated_at)`
+        : `date(updated_at)`;
 }
 
 /** Time-series per user (for stacked charts), bucketed by hour or day per range. */
