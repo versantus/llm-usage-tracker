@@ -6,6 +6,7 @@ import Charts
 struct DashboardView: View {
     @EnvironmentObject var store: DataStore
     @EnvironmentObject var settings: AppSettings
+    @Environment(\.openWindow) private var openWindow
 
     private let ranges: [(String, Double)] = [
         ("All time", 0), ("12 hours", 0.5), ("24 hours", 1),
@@ -51,6 +52,25 @@ struct DashboardView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .help("Refresh")
+
+            Button { showSettings() } label: {
+                Image(systemName: "gearshape")
+            }
+            .help("Settings")
+        }
+    }
+
+    /// Open the Settings window and bring it to the front.
+    private func showSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let win = NSApp.windows.first(where: { $0.title == "Usage Tracker Settings" }) {
+            win.makeKeyAndOrderFront(nil)
+            win.orderFrontRegardless()
+            return
+        }
+        openWindow(id: "settings")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            NSApp.windows.first(where: { $0.title == "Usage Tracker Settings" })?.makeKeyAndOrderFront(nil)
         }
     }
 

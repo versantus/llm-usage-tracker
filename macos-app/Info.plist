@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Usage Tracker</string>
+    <key>CFBundleDisplayName</key>
+    <string>Usage Tracker</string>
+    <key>CFBundleIdentifier</key>
+    <string>uk.co.versantus.usage-tracker</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>UsageTracker</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <!-- Regular app: shows a Dock icon and opens its window at launch, plus a
+         menu-bar leaf. (Menu-bar-only was undiscoverable behind the notch.) -->
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHumanReadableCopyright</key>
+    <string>LLM Usage Tracker</string>
+    <!-- Self-hosted tool: the user configures the server URL, which may be a
+         plain-HTTP server on localhost or a LAN. Allow cleartext loads so those
+         work; HTTPS endpoints (e.g. a Fly deployment) are still used when given. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+</dict>
+</plist>

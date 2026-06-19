@@ -11,7 +11,16 @@ struct UsageTrackerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        // Lives in the menu bar; click the leaf for a popover.
+        // Primary window — opens automatically at launch (so the app is visible
+        // even when the menu-bar icon is hidden behind the notch).
+        WindowGroup("Usage Dashboard", id: "dashboard") {
+            DashboardView()
+                .environmentObject(appStore)
+                .environmentObject(appSettings)
+        }
+        .defaultSize(width: 980, height: 720)
+
+        // Also lives in the menu bar; click the leaf for a quick popover.
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(appStore)
@@ -20,14 +29,6 @@ struct UsageTrackerApp: App {
             Image(systemName: "leaf.fill")
         }
         .menuBarExtraStyle(.window)
-
-        // The full dashboard, opened on demand from the popover.
-        Window("Usage Dashboard", id: "dashboard") {
-            DashboardView()
-                .environmentObject(appStore)
-                .environmentObject(appSettings)
-        }
-        .defaultSize(width: 980, height: 720)
 
         // Settings as a normal Window (not a Settings scene): accessory apps
         // open these reliably via openWindow + activate, where the Settings

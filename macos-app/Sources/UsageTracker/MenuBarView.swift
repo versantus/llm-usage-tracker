@@ -122,6 +122,13 @@ struct MenuBarView: View {
     /// once it exists on the next runloop tick.
     private func show(_ id: String, titled title: String) {
         NSApp.activate(ignoringOtherApps: true)
+        // Raise an existing window if there is one (a WindowGroup would otherwise
+        // spawn a duplicate); only open a fresh one when none exists.
+        if let win = NSApp.windows.first(where: { $0.title == title }) {
+            win.makeKeyAndOrderFront(nil)
+            win.orderFrontRegardless()
+            return
+        }
         openWindow(id: id)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             if let win = NSApp.windows.first(where: { $0.title == title }) {
