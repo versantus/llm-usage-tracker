@@ -70,12 +70,33 @@ import {
 
 const VERSION = '0.3.0';
 
+/**
+ * Positional args, normalised across platforms. `bun --compile` lays out
+ * process.argv differently: on macOS/Linux it injects a virtual entrypoint
+ * (e.g. "/$bunfs/root/lut") at argv[1], so the command is argv[2]; on Windows
+ * there's no such entry, so the command is argv[1]. We strip argv[0] (the exe)
+ * and any bun virtual entry, leaving argv[0]=command, argv[1]=subcommand.
+ */
+const ARGS: string[] = (() => {
+    const a = process.argv.slice(1);
+    const first = a[0] || '';
+    if (
+        first === process.execPath ||
+        first.includes('$bunfs') ||
+        first.includes('~BUN') ||
+        first.includes('/B/~BUN')
+    ) {
+        a.shift();
+    }
+    return a;
+})();
+
 function flag(name: string): string | undefined {
-    const i = process.argv.indexOf(`--${name}`);
-    return i >= 0 ? process.argv[i + 1] : undefined;
+    const i = ARGS.indexOf(`--${name}`);
+    return i >= 0 ? ARGS[i + 1] : undefined;
 }
 function has(name: string): boolean {
-    return process.argv.includes(`--${name}`);
+    return ARGS.includes(`--${name}`);
 }
 
 async function ask(question: string, fallback?: string): Promise<string> {
@@ -273,7 +294,7 @@ async function cmdReport(): Promise<void> {
 /** `lut <surface> <enable|disable|status>`. */
 function cmdSurface(name: string): void {
     const def = SURFACES[name];
-    const sub = process.argv[3];
+    const sub = ARGS[1];
     switch (sub) {
         case 'enable':
             if (def.onEnable) console.error(`  ${def.onEnable()}`);
@@ -343,7 +364,7 @@ function usage(): void {
 
 // --- dispatch ---------------------------------------------------------------
 
-const cmd = process.argv[2];
+const cmd = ARGS[0];
 const scanMatch = cmd?.match(/^scan-(.+)$/);
 const watchMatch = cmd?.match(/^watch-(.+)$/);
 
