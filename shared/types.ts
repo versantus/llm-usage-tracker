@@ -15,6 +15,7 @@ export type Surface =
     | 'cowork'
     | 'codex-cli'
     | 'gemini-cli'
+    | 'antigravity-cli'
     | 'copilot'
     | 'ollama'
     | 'cursor'

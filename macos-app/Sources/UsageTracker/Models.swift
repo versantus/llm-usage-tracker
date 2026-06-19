@@ -57,6 +57,62 @@ struct OverTimeRow: Decodable {
     var co2Grams: Double
 }
 
+// --- per-user drill-down (/api/by-user/:id) ---
+
+struct AppDeviceRow: Decodable, Identifiable {
+    var surface: String
+    var deviceName: String
+    var sessions: Int
+    var tokens: Double
+    var energyWh: Double
+    var co2Grams: Double
+
+    var id: String { "\(surface)|\(deviceName)" }
+    /// "codex-cli · macOS" (device omitted when blank)
+    var label: String { deviceName.isEmpty ? surface : "\(surface) · \(deviceName)" }
+}
+
+struct SessionRow: Decodable, Identifiable {
+    var sessionId: String
+    var provider: String
+    var surface: String
+    var deviceName: String
+    var primaryModel: String
+    var cwd: String
+    var totalTokens: Double
+    var energyWh: Double
+    var co2Grams: Double
+    var startedAt: String
+    var updatedAt: String
+
+    var id: String { sessionId }
+}
+
+struct UserIdentity: Decodable {
+    var userId: String
+    var name: String
+    var email: String
+    var firstSeen: String?
+    var lastSeen: String?
+}
+
+struct UserOverTimeRow: Decodable, Identifiable {
+    var day: String
+    var tokens: Double
+    var co2Grams: Double
+    var energyWh: Double
+
+    var id: String { day }
+}
+
+struct UserDetail: Decodable {
+    var user: UserIdentity?
+    var models: [ModelRow]
+    var appDevice: [AppDeviceRow]
+    var overTime: [UserOverTimeRow]
+    var sessions: [SessionRow]
+}
+
 /// Decoder configured for the server's snake_case payloads.
 func makeDecoder() -> JSONDecoder {
     let d = JSONDecoder()

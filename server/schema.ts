@@ -20,6 +20,7 @@ export const IngestEventSchema = z.object({
             'cowork',
             'codex-cli',
             'gemini-cli',
+            'antigravity-cli',
             'copilot',
             'ollama',
             'cursor',

@@ -83,6 +83,18 @@ final class DataStore: ObservableObject {
         }
     }
 
+    /// Per-user breakdown for the drill-down view (honours the selected range).
+    func userDetail(_ userId: String) async -> Result<UserDetail, AppError> {
+        let enc = userId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userId
+        do {
+            return .success(try await fetch("/api/by-user/\(enc)", as: UserDetail.self))
+        } catch let e as AppError {
+            return .failure(e)
+        } catch {
+            return .failure(.network(error.localizedDescription))
+        }
+    }
+
     /// Quick reachability + auth check, used by the Settings "Test" button.
     func test() async -> Result<String, AppError> {
         do {

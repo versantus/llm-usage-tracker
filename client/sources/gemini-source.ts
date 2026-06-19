@@ -135,10 +135,22 @@ function metricValue(raw: any): number | null {
 
 interface Agg {
     model: string;
+    app: string; // OTEL service.name, e.g. "gemini-cli" / "antigravity-cli"
     input: number;
     output: number;
     cacheRead: number;
     thought: number;
+}
+
+/** Read an attribute from an OTLP attributes array OR a flat object map. */
+function attrValue(attrs: any, key: string): string | undefined {
+    if (Array.isArray(attrs)) {
+        const a = attrs.find((x) => x?.key === key);
+        const v = a?.value;
+        return typeof v === 'object' ? v?.stringValue : v != null ? String(v) : undefined;
+    }
+    if (attrs && typeof attrs === 'object' && attrs[key] != null) return String(attrs[key]);
+    return undefined;
 }
 
 /** Parse the telemetry file into per-session aggregates (cumulative -> max). */
@@ -155,6 +167,8 @@ export function parseGeminiTelemetry(text: string): Map<string, Agg> {
             ? payload.resourceMetrics
             : [payload];
         for (const rm of resources) {
+            // Which app produced these metrics (gemini-cli vs antigravity-cli).
+            const app = (attrValue(rm?.resource?.attributes, 'service.name') || '').toLowerCase();
             for (const scope of rm?.scopeMetrics || []) {
                 for (const metric of scope?.metrics || []) {
                     const name = metric?.descriptor?.name ?? metric?.name;
@@ -170,8 +184,9 @@ export function parseGeminiTelemetry(text: string): Map<string, Agg> {
                         const model = String(
                             (isPref ? attrs.model : attrs['gen_ai.response.model'] || attrs['gen_ai.request.model']) || 'unknown'
                         );
-                        const agg = sessions.get(sid) || { model, input: 0, output: 0, cacheRead: 0, thought: 0 };
+                        const agg = sessions.get(sid) || { model, app, input: 0, output: 0, cacheRead: 0, thought: 0 };
                         if (model !== 'unknown') agg.model = model;
+                        if (app) agg.app = app;
                         // each token class is its own cumulative counter: keep the max
                         if (key === 'inputTokens') agg.input = Math.max(agg.input, amount);
                         else if (key === 'outputTokens') agg.output = Math.max(agg.output, amount);
@@ -229,9 +244,10 @@ export const geminiSource: Source = {
             primaryModel: agg.model
         };
         const now = new Date().toISOString();
+        const surface = agg.app.includes('antigravity') ? 'antigravity-cli' : 'gemini-cli';
         return {
             provider: 'google',
-            surface: 'gemini-cli',
+            surface,
             sessionId,
             cwd: '',
             usage,

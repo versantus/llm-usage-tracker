@@ -8,6 +8,9 @@ struct DashboardView: View {
     @EnvironmentObject var settings: AppSettings
     @Environment(\.openWindow) private var openWindow
 
+    @State private var selectedUserID: UserRow.ID?
+    @State private var presentedUser: UserRow?
+
     private let ranges: [(String, Double)] = [
         ("All time", 0), ("12 hours", 0.5), ("24 hours", 1),
         ("7 days", 7), ("30 days", 30), ("90 days", 90)
@@ -23,6 +26,7 @@ struct DashboardView: View {
                 cards
                 equivalents
                 charts
+                modelPiePanel
                 usersTable
             }
             .padding(20)
@@ -174,6 +178,12 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, minHeight: 180)
     }
 
+    private var modelPiePanel: some View {
+        panel("Model favourites (by tokens)") {
+            ModelPieChart(models: store.models)
+        }
+    }
+
     // MARK: users
 
     private var usersTable: some View {
@@ -184,7 +194,9 @@ struct DashboardView: View {
                 Text("No usage yet. Run a session or POST to /ingest.")
                     .foregroundStyle(Theme.muted).padding(.vertical, 8)
             } else {
-                Table(rows) {
+                Text("Select a user to drill into their breakdown.")
+                    .font(.caption).foregroundStyle(Theme.muted)
+                Table(rows, selection: $selectedUserID) {
                     TableColumn("User") { Text($0.name) }
                     TableColumn("Email") { Text($0.email).foregroundStyle(Theme.muted) }
                     TableColumn("Sessions") { Text(Fmt.int(Double($0.sessions))).monospacedDigit() }
@@ -193,10 +205,18 @@ struct DashboardView: View {
                     TableColumn("CO₂") { Text(Fmt.co2($0.co2Grams)).monospacedDigit() }
                 }
                 .frame(minHeight: 220, maxHeight: 420)
+                .onChange(of: selectedUserID) { _, id in
+                    if let id, let u = rows.first(where: { $0.id == id }) { presentedUser = u }
+                }
             }
         }
         .padding(14)
         .background(Theme.cardBg, in: RoundedRectangle(cornerRadius: 10))
+        .sheet(item: $presentedUser, onDismiss: { selectedUserID = nil }) { u in
+            UserDetailView(userId: u.userId, name: u.name)
+                .environmentObject(store)
+                .environmentObject(settings)
+        }
     }
 
     private func errorBanner(_ msg: String) -> some View {

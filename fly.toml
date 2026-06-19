@@ -26,9 +26,11 @@ primary_region = 'your-region'
   internal_port = 4317
   force_https = true
   # Keep one machine always running so the central store is always reachable and
-  # never split across machines. auto_stop is disabled deliberately.
+  # never split across machines. auto_stop is disabled deliberately; auto_start
+  # is on so the machine recovers (wakes on request) if a host/platform event
+  # ever stops it, instead of staying down and 503-ing.
   auto_stop_machines = 'off'
-  auto_start_machines = false
+  auto_start_machines = true
   min_machines_running = 1
   processes = ['app']
 
