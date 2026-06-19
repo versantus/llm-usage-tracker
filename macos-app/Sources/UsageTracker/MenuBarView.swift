@@ -25,6 +25,7 @@ struct MenuBarView: View {
         }
         .padding(14)
         .frame(width: 320)
+        .preferredColorScheme(.dark)
     }
 
     private var header: some View {

@@ -30,6 +30,7 @@ struct DashboardView: View {
         .frame(minWidth: 820, minHeight: 640)
         .background(Theme.panelBg)
         .navigationTitle("Usage Tracker")
+        .preferredColorScheme(.dark) // dark UI regardless of the system Light/Dark setting
     }
 
     private var toolbar: some View {

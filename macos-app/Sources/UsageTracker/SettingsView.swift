@@ -67,6 +67,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .padding()
+        .preferredColorScheme(.dark)
     }
 
     /// One-click reporting setup: writes config + wires the Claude Code Stop
