@@ -63,5 +63,21 @@ if ($env:LUT_INGEST_TOKEN) { $cargs += @('--ingest-token', $env:LUT_INGEST_TOKEN
 Say "connecting Claude Code..."
 & $Dest @cargs
 
+# Offer the tray GUI (built into lut.exe: `lut gui`) + run-at-login.
+$ans = Read-Host "Run the tray GUI now and at login? (Y/n)"
+if ($ans -eq '' -or $ans -match '^[Yy]') {
+    # Hidden launcher so the console doesn't flash at login.
+    $vbs = Join-Path $BinDir 'lut-gui.vbs'
+    "CreateObject(""WScript.Shell"").Run """"""$Dest"""" gui"", 0, False" | Set-Content -Path $vbs -Encoding ASCII
+    $startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\AI Carbon Tracker.lnk'
+    $ws = New-Object -ComObject WScript.Shell
+    $sc = $ws.CreateShortcut($startup)
+    $sc.TargetPath = (Join-Path $env:WINDIR 'System32\wscript.exe')
+    $sc.Arguments = """$vbs"""
+    $sc.Save()
+    & $Dest gui
+    Say "Tray GUI running (system-tray icon) and set to start at login."
+}
+
 Write-Host ""
-Say "All set. Run 'lut status' to verify."
+Say "All set. Run 'lut status' to verify, or 'lut gui' for the tray."

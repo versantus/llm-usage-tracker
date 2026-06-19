@@ -27,6 +27,7 @@ import {
 } from '../client/config.ts';
 import type { ClientConfig } from '../client/config.ts';
 import { cursorPull } from '../client/cursor-pull.ts';
+import { launchGui } from '../client/gui.ts';
 import { stopHookMain } from '../client/hooks/run-stop.ts';
 import { runHook } from '../client/hooks/stdin.ts';
 import { agentEnabled, disableAgent, enableAgent } from '../client/launch-agent.ts';
@@ -349,6 +350,7 @@ function usage(): void {
             '             [--device-name D] [--no-hook] [--no-<surface>]',
             '  hook       Stop-hook runtime (Claude Code invokes this)',
             '  wire | unwire   (re)wire / remove the Stop hook',
+            '  gui        launch the tray + settings GUI (Windows)',
             '  status | report [--days N] | version',
             '',
             'Watcher surfaces: ' + SURFACE_NAMES.join(', '),
@@ -384,6 +386,8 @@ if (cmd === 'hook') {
     await cmdWatch(watchMatch[1]);
 } else if (cmd === 'cursor-pull') {
     await cmdCursorPull();
+} else if (cmd === 'gui' || cmd === 'tray') {
+    launchGui();
 } else if (cmd === 'status') {
     await cmdStatus();
 } else if (cmd === 'report') {
