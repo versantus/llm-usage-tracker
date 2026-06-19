@@ -18,7 +18,7 @@
 #   LUT_NO_CONNECT  set to 1 to skip `lut connect`
 set -euo pipefail
 
-REPO_DEFAULT="your-org/llm-usage-tracker"
+REPO_DEFAULT="versantus/llm-usage-tracker"
 BIN_DIR="${LUT_BIN_DIR:-$HOME/.local/bin}"
 DEST="$BIN_DIR/lut"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"

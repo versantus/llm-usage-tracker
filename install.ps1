@@ -10,7 +10,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-$RepoDefault = 'your-org/llm-usage-tracker'
+$RepoDefault = 'versantus/llm-usage-tracker'
 $Repo = if ($env:LUT_REPO) { $env:LUT_REPO } else { $RepoDefault }
 $BinDir = if ($env:LUT_BIN_DIR) { $env:LUT_BIN_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\llm-usage-tracker' }
 $Dest = Join-Path $BinDir 'lut.exe'
