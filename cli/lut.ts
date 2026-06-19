@@ -28,6 +28,7 @@ import {
 import type { ClientConfig } from '../client/config.ts';
 import { cursorPull } from '../client/cursor-pull.ts';
 import { launchGui } from '../client/gui.ts';
+import { windowsFirstRun } from '../client/windows-setup.ts';
 import { stopHookMain } from '../client/hooks/run-stop.ts';
 import { runHook } from '../client/hooks/stdin.ts';
 import { agentEnabled, disableAgent, enableAgent } from '../client/launch-agent.ts';
@@ -394,6 +395,9 @@ if (cmd === 'hook') {
     await cmdReport();
 } else if (cmd === 'version' || cmd === '--version' || cmd === '-v') {
     console.log(VERSION);
+} else if (cmd === undefined && process.platform === 'win32') {
+    // Double-clicked on Windows (no args): go straight to the GUI + autostart.
+    windowsFirstRun();
 } else if (cmd === undefined || cmd === 'help' || cmd === '--help' || cmd === '-h') {
     usage();
 } else {

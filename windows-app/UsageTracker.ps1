@@ -46,7 +46,9 @@ if (-not $script:Lut) {
 $ConfigPath   = Join-Path $env:USERPROFILE '.config\llm-usage-tracker\config.json'
 $StateDir     = Join-Path $env:LOCALAPPDATA 'llm-usage-tracker'
 $SurfaceState = Join-Path $StateDir 'tray-surfaces.json'
+$LogDir       = Join-Path $StateDir 'logs'
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 function Get-Config {
     if (Test-Path $ConfigPath) {
@@ -55,10 +57,11 @@ function Get-Config {
     return $null
 }
 
-# Watcher surfaces detectable on Windows (cowork is macOS-only).
+# Watcher surfaces detectable on Windows.
 function Get-AvailableSurfaces {
     $s = @()
     if (Test-Path (Join-Path $env:USERPROFILE '.codex\sessions')) { $s += 'codex' }
+    if (Test-Path (Join-Path $env:APPDATA 'Claude\local-agent-mode-sessions')) { $s += 'cowork' }
     if (Test-Path (Join-Path $env:USERPROFILE '.gemini'))          { $s += 'gemini' }
     if ((Test-Path (Join-Path $env:USERPROFILE '.copilot')) -or
         (Test-Path (Join-Path $env:APPDATA 'Code\User\workspaceStorage'))) { $s += 'copilot' }
@@ -100,8 +103,12 @@ function Ensure-Watchers {
         $existing = $script:Watchers[$s]
         if (-not $existing -or $existing.HasExited) {
             try {
+                # Log each watcher so it's diagnosable (watchers print to stderr).
+                $errLog = Join-Path $LogDir "$s.log"
+                $outLog = Join-Path $LogDir "$s.out.log"
                 $script:Watchers[$s] = Start-Process -FilePath $script:Lut `
-                    -ArgumentList "watch-$s" -WindowStyle Hidden -PassThru
+                    -ArgumentList "watch-$s" -WindowStyle Hidden -PassThru `
+                    -RedirectStandardError $errLog -RedirectStandardOutput $outLog
             } catch { }
         }
     }
@@ -155,7 +162,7 @@ function Show-Settings {
     $form.Controls.Add($lblTrack); $script:fy += 22
 
     $checks = @{}
-    foreach ($s in @('codex', 'gemini', 'copilot', 'ollama')) {
+    foreach ($s in @('codex', 'cowork', 'gemini', 'copilot', 'ollama')) {
         $cb = New-Object System.Windows.Forms.CheckBox
         $present = $available -contains $s
         $cb.Text = $s + $(if (-not $present) { '  (not detected)' } else { '' })

@@ -26,13 +26,18 @@ import type { CollectedSession } from '../../shared/types.ts';
 import type { Source } from './source.ts';
 
 export function coworkSessionsRoot(): string {
-    return join(
-        homedir(),
-        'Library',
-        'Application Support',
-        'Claude',
-        'local-agent-mode-sessions'
-    );
+    // Claude desktop's local-agent-mode-sessions, per OS:
+    //   macOS:   ~/Library/Application Support/Claude/...
+    //   Windows: %APPDATA%\Claude\...   (AppData\Roaming)
+    //   Linux:   ~/.config/Claude/...
+    if (process.platform === 'win32') {
+        const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+        return join(appData, 'Claude', 'local-agent-mode-sessions');
+    }
+    if (process.platform === 'darwin') {
+        return join(homedir(), 'Library', 'Application Support', 'Claude', 'local-agent-mode-sessions');
+    }
+    return join(homedir(), '.config', 'Claude', 'local-agent-mode-sessions');
 }
 
 export function coworkAvailable(): boolean {
