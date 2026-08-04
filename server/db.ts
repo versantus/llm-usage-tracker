@@ -476,6 +476,21 @@ export function overTimeForUser(db: Database, userId: string, days?: number) {
         .all({ $id: userId, ...sinceParams(days) });
 }
 
+/** Time-series per work type for one user (stacked charts). */
+export function overTimeByCategoryForUser(db: Database, userId: string, days?: number) {
+    return db
+        .query(
+            `SELECT ${timeBucket(days)} AS day,
+                    category,
+                    COALESCE(SUM(total_tokens), 0) AS tokens,
+                    COALESCE(SUM(co2_grams), 0) AS co2_grams
+             FROM sessions WHERE user_id = $id${andSince(days)}
+             GROUP BY day, category
+             ORDER BY day ASC`
+        )
+        .all({ $id: userId, ...sinceParams(days) });
+}
+
 /** Per-(app × device) breakdown for one user, e.g. "cowork × macOS". */
 export function appDeviceForUser(db: Database, userId: string, days?: number) {
     return db

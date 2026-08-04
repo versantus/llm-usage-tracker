@@ -63,6 +63,32 @@ struct ModelPieChart: View {
     }
 }
 
+/// Horizontal bars: tokens by model. Shared by the dashboard and the per-user
+/// drill-down so the two screens read identically.
+struct ModelBarChart: View {
+    let models: [ModelRow]
+
+    var body: some View {
+        if models.isEmpty {
+            Text("No data").foregroundStyle(Theme.muted).frame(maxWidth: .infinity, minHeight: 180)
+        } else {
+            Chart(models) { row in
+                BarMark(
+                    x: .value("Tokens", row.tokens),
+                    y: .value("Model", Fmt.shortModel(row.model))
+                )
+                .foregroundStyle(Theme.accent)
+                .annotation(position: .trailing) {
+                    Text(Fmt.tokens(row.tokens) + (row.isApprox ? " ~" : ""))
+                        .font(.caption2).foregroundStyle(Theme.muted)
+                }
+            }
+            .chartXAxis { AxisMarks(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) }
+            .frame(height: max(200, Double(models.count) * 34))
+        }
+    }
+}
+
 /// Stacked bars over time, one segment per work type — shows how the MIX of
 /// work changes across the selected range.
 struct CategoryTimelineChart: View {

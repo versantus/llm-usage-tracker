@@ -1,7 +1,9 @@
 import SwiftUI
+import Charts
 
-/// Drill-down for one user: their usage split by app/device and by model, plus
-/// recent sessions. Opened from the Users table on the dashboard.
+/// Drill-down for one user, pushed in-window from the Users table. Mirrors the
+/// main dashboard — same cards, equivalents and charts — filtered to the user,
+/// plus their app×device split and recent sessions.
 struct UserDetailView: View {
     let userId: String
     let name: String
@@ -12,96 +14,161 @@ struct UserDetailView: View {
     @State private var detail: UserDetail?
     @State private var error: String?
     @State private var loading = true
+    @AppStorage("timeChartBy") private var timeBy = "user" // shared with the dashboard toggle
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
-            content
+        Group {
+            // Full-screen spinner only on FIRST load; range changes overlay the
+            // small header spinner instead of blanking the previous data.
+            if loading, detail == nil {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange).padding().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let d = detail {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        header(d)
+                        cards(d)
+                        equivalents(d)
+                        charts(d)
+                        breakdowns(d)
+                        appDevice(d)
+                        recentSessions(d)
+                    }
+                    .padding(20)
+                }
+            }
         }
-        .frame(minWidth: 640, minHeight: 560)
+        .frame(minWidth: 820, minHeight: 560)
         .background(Theme.panelBg)
         .preferredColorScheme(.dark)
         .navigationTitle(name)
         .task(id: settings.rangeDays) { await load() }
     }
 
-    private var header: some View {
+    // MARK: header + cards (mirror DashboardView)
+
+    private func header(_ d: UserDetail) -> some View {
         HStack {
+            Image(systemName: "person.fill").foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
-                Text(detail?.user?.name ?? name).font(.title2).bold()
-                if let email = detail?.user?.email { Text(email).font(.callout).foregroundStyle(Theme.muted) }
+                Text(d.user?.name ?? name).font(.title2).bold()
+                if let email = d.user?.email { Text(email).font(.callout).foregroundStyle(Theme.muted) }
             }
             Spacer()
+            if loading { ProgressView().controlSize(.small) }
             Text(Fmt.rangeLabel(settings.rangeDays)).font(.caption).foregroundStyle(Theme.muted)
-            if loading, detail != nil { ProgressView().controlSize(.small) }
         }
-        .padding(16)
     }
 
-    @ViewBuilder private var content: some View {
-        // Full-screen spinner only on FIRST load; range changes overlay the
-        // small header spinner instead of blanking the previous data.
-        if loading, detail == nil {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let error {
-            Label(error, systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange).padding().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let d = detail {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    panel { MetricTimelineChart(points: d.overTime) }
+    /// Per-user totals — summed from the app×device rollup (covers every session once).
+    private func totals(_ d: UserDetail) -> (sessions: Int, tokens: Double, energy: Double, co2: Double) {
+        d.appDevice.reduce((0, 0.0, 0.0, 0.0)) {
+            ($0.0 + $1.sessions, $0.1 + $1.tokens, $0.2 + $1.energyWh, $0.3 + $1.co2Grams)
+        }
+    }
 
-                    HStack(alignment: .top, spacing: 16) {
-                        section("By app & device") {
-                            if d.appDevice.isEmpty { empty } else {
-                                ForEach(d.appDevice) { row in
-                                    statRow(row.label, sessions: row.sessions, tokens: row.tokens, co2: row.co2Grams)
-                                }
-                            }
-                        }
-                        section("Model favourites") {
-                            ModelPieChart(models: d.models)
-                        }
-                    }
+    private func cards(_ d: UserDetail) -> some View {
+        let t = totals(d)
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+            card("Total CO₂", Fmt.co2(t.co2), "estimated emissions", Theme.palette[0])
+            card("Energy", Fmt.energy(t.energy), "compute energy", Theme.palette[1])
+            card("Water", Fmt.water(Fmt.waterLitres(t.energy)), "cooling + generation ~", Theme.palette[2])
+            card("Tokens", Fmt.tokens(t.tokens), "\(Fmt.int(Double(t.sessions))) sessions", Theme.palette[3])
+        }
+    }
 
-                    section("Work types") {
-                        CategoryBarChart(categories: d.categories ?? [])
-                    }
+    private func card(_ label: String, _ value: String, _ sub: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased()).font(.caption2).foregroundStyle(Theme.muted)
+            Text(value).font(.system(.title2, design: .rounded)).bold().foregroundStyle(color)
+                .lineLimit(1).minimumScaleFactor(0.5)
+            Text(sub).font(.caption2).foregroundStyle(Theme.muted).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Theme.cardBg, in: RoundedRectangle(cornerRadius: 10))
+    }
 
-                    section("By model") {
-                        if d.models.isEmpty { empty } else {
-                            ForEach(d.models) { m in
-                                statRow(Fmt.shortModel(m.model) + (m.isApprox ? " ~" : ""),
-                                        sessions: m.sessions, tokens: m.tokens, co2: m.co2Grams)
-                            }
-                        }
+    @ViewBuilder private func equivalents(_ d: UserDetail) -> some View {
+        let t = totals(d)
+        if t.co2 > 0 || t.energy > 0 {
+            (Text("Roughly equivalent to  ").foregroundStyle(Theme.muted)
+             + Text("🚗 \(Fmt.num(Fmt.milesDriven(co2Grams: t.co2))) miles  ·  ")
+             + Text("📱 \(Fmt.num(Fmt.phoneCharges(energyWh: t.energy))) phone charges  ·  ")
+             + Text("🫖 \(Fmt.num(Fmt.cupsOfTea(energyWh: t.energy))) cups of tea  ·  ")
+             + Text("💧 \(Fmt.num(Fmt.waterBottles(energyWh: t.energy))) bottles of water"))
+                .font(.callout)
+        }
+    }
+
+    // MARK: charts (mirror DashboardView, filtered to this user)
+
+    private func charts(_ d: UserDetail) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Over time").font(.headline)
+                    Spacer()
+                    Picker("", selection: $timeBy) {
+                        Text("total").tag("user")
+                        Text("by work type").tag("category")
                     }
-                    section("Recent sessions") {
-                        if d.sessions.isEmpty { empty } else {
-                            ForEach(d.sessions.prefix(25)) { s in sessionRow(s) }
-                        }
-                    }
+                    .pickerStyle(.segmented).fixedSize()
                 }
-                .padding(16)
+                if timeBy == "category" {
+                    CategoryTimelineChart(points: d.categoriesOverTime ?? [])
+                } else {
+                    MetricTimelineChart(points: d.overTime)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
+            .background(Theme.cardBg, in: RoundedRectangle(cornerRadius: 10))
+
+            panel("Tokens by model") { ModelBarChart(models: d.models) }
+        }
+    }
+
+    private func breakdowns(_ d: UserDetail) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            panel("Model favourites (by tokens)") { ModelPieChart(models: d.models) }
+            panel("Work types") { CategoryBarChart(categories: d.categories ?? []) }
+        }
+    }
+
+    // MARK: user-specific sections
+
+    private func appDevice(_ d: UserDetail) -> some View {
+        panel("By app & device") {
+            if d.appDevice.isEmpty {
+                empty
+            } else {
+                ForEach(d.appDevice) { row in
+                    statRow(row.label, sessions: row.sessions, tokens: row.tokens, co2: row.co2Grams)
+                }
             }
         }
     }
 
-    private func panel<C: View>(@ViewBuilder _ body: () -> C) -> some View {
-        body()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(Theme.cardBg, in: RoundedRectangle(cornerRadius: 10))
+    private func recentSessions(_ d: UserDetail) -> some View {
+        panel("Recent sessions") {
+            if d.sessions.isEmpty {
+                empty
+            } else {
+                ForEach(d.sessions.prefix(25)) { s in sessionRow(s) }
+            }
+        }
     }
 
-    private func section<C: View>(_ title: String, @ViewBuilder _ body: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func panel<C: View>(_ title: String, @ViewBuilder _ body: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.headline)
             body()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Theme.cardBg, in: RoundedRectangle(cornerRadius: 10))
     }
 

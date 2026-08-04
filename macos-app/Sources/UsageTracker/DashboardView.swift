@@ -183,23 +183,7 @@ struct DashboardView: View {
     }
 
     @ViewBuilder private var modelChart: some View {
-        if store.models.isEmpty {
-            emptyChart
-        } else {
-            Chart(store.models) { row in
-                BarMark(
-                    x: .value("Tokens", row.tokens),
-                    y: .value("Model", Fmt.shortModel(row.model))
-                )
-                .foregroundStyle(Theme.accent)
-                .annotation(position: .trailing) {
-                    Text(Fmt.tokens(row.tokens) + (row.isApprox ? " ~" : ""))
-                        .font(.caption2).foregroundStyle(Theme.muted)
-                }
-            }
-            .chartXAxis { AxisMarks(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) }
-            .frame(height: max(200, Double(store.models.count) * 34))
-        }
+        ModelBarChart(models: store.models)
     }
 
     private var emptyChart: some View {

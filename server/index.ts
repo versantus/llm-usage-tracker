@@ -18,6 +18,7 @@ import {
     openDb,
     overTime,
     overTimeByCategory,
+    overTimeByCategoryForUser,
     overTimeForUser,
     sessionsForUser,
     summaryByCategory,
@@ -177,6 +178,7 @@ const server = Bun.serve({
                 models: modelsForUser(db, userId, days),
                 appDevice: appDeviceForUser(db, userId, days),
                 categories: categoriesForUser(db, userId, days),
+                categoriesOverTime: overTimeByCategoryForUser(db, userId, days),
                 overTime: overTimeForUser(db, userId, days),
                 sessions: sessionsForUser(db, userId, days)
             });

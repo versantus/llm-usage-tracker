@@ -134,6 +134,8 @@ struct UserDetail: Decodable {
     var appDevice: [AppDeviceRow]
     /// Work-type rollup (absent on pre-v1.2 servers).
     var categories: [CategoryRow]?
+    /// Work-type time series (absent on pre-v1.4 servers).
+    var categoriesOverTime: [CategoryOverTimeRow]?
     var overTime: [UserOverTimeRow]
     var sessions: [SessionRow]
 }
