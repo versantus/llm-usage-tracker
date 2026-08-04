@@ -75,7 +75,7 @@ import {
     wireClaudeCodeHook
 } from '../client/wire-hook.ts';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 
 /**
  * Positional args, normalised across platforms. `bun --compile` lays out

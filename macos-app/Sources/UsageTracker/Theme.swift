@@ -14,6 +14,20 @@ enum Theme {
     static let panelBg = Color(hex: 0x0d1117)
 
     static func color(_ index: Int) -> Color { palette[index % palette.count] }
+
+    /// Work-type colours keyed by category (stable across ranges; mirrors the
+    /// web dashboard's CATEGORY_COLORS).
+    static func categoryColor(_ category: String) -> Color {
+        switch category {
+        case "coding": return palette[0]
+        case "debugging": return palette[5]
+        case "docs-writing": return palette[3]
+        case "research": return palette[1]
+        case "planning": return palette[4]
+        case "unknown": return Color(hex: 0x4a5561)
+        default: return muted // "other"
+        }
+    }
 }
 
 extension Color {

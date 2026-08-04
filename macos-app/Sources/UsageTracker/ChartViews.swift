@@ -14,10 +14,12 @@ struct ModelPieChart: View {
     let models: [ModelRow]
 
     private struct Slice: Identifiable {
-        let id = UUID()
         let name: String
         let tokens: Double
         let colorIndex: Int
+        // Stable identity: a fresh UUID per render would defeat Charts' diffing
+        // and rebuild every sector on each store update.
+        var id: String { name }
     }
 
     private var slices: [Slice] {
@@ -57,6 +59,63 @@ struct ModelPieChart: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+}
+
+/// Stacked bars over time, one segment per work type — shows how the MIX of
+/// work changes across the selected range.
+struct CategoryTimelineChart: View {
+    let points: [CategoryOverTimeRow]
+
+    private var categoriesPresent: [String] {
+        var seen = [String]()
+        for p in points where !seen.contains(p.category) { seen.append(p.category) }
+        return seen
+    }
+
+    var body: some View {
+        if points.isEmpty {
+            Text("No data").foregroundStyle(Theme.muted).frame(maxWidth: .infinity, minHeight: 180)
+        } else {
+            Chart(points) { p in
+                BarMark(
+                    x: .value("Day", Fmt.bucket(p.day)),
+                    y: .value("CO₂ (g)", p.co2Grams)
+                )
+                .foregroundStyle(by: .value("Work type", p.category))
+            }
+            .chartForegroundStyleScale(
+                domain: categoriesPresent,
+                range: categoriesPresent.map { Theme.categoryColor($0) }
+            )
+            .chartLegend(position: .bottom, spacing: 6)
+            .frame(height: 200)
+        }
+    }
+}
+
+/// Horizontal bars of token share by work type, colour-keyed per category.
+struct CategoryBarChart: View {
+    let categories: [CategoryRow]
+
+    var body: some View {
+        if categories.isEmpty {
+            Text("No data").foregroundStyle(Theme.muted).frame(maxWidth: .infinity, minHeight: 160)
+        } else {
+            Chart(categories) { row in
+                BarMark(
+                    x: .value("Tokens", row.tokens),
+                    y: .value("Work type", row.category)
+                )
+                .foregroundStyle(Theme.categoryColor(row.category))
+                .annotation(position: .trailing) {
+                    Text("\(Fmt.tokens(row.tokens)) · \(row.sessions) sess")
+                        .font(.caption2).foregroundStyle(Theme.muted)
+                }
+            }
+            .chartXAxis { AxisMarks(format: FloatingPointFormatStyle<Double>.number.notation(.compactName)) }
+            .frame(height: max(160, Double(categories.count) * 32))
         }
     }
 }

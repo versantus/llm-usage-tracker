@@ -9,7 +9,9 @@ struct DashboardView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var selectedUserID: UserRow.ID?
-    @State private var presentedUser: UserRow?
+    @State private var path: [UserRow] = []
+    /// Which series the over-time chart stacks by.
+    @AppStorage("timeChartBy") private var timeBy = "user"
 
     private let ranges: [(String, Double)] = [
         ("All time", 0), ("12 hours", 0.5), ("24 hours", 1),
@@ -17,19 +19,27 @@ struct DashboardView: View {
     ]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                toolbar
-                if case .error(let msg) = store.state, store.summary == nil {
-                    errorBanner(msg)
+        NavigationStack(path: $path) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    toolbar
+                    if case .error(let msg) = store.state, store.summary == nil {
+                        errorBanner(msg)
+                    }
+                    cards
+                    equivalents
+                    charts
+                    modelPiePanel
+                    usersTable
                 }
-                cards
-                equivalents
-                charts
-                modelPiePanel
-                usersTable
+                .padding(20)
             }
-            .padding(20)
+            .background(Theme.panelBg)
+            .navigationDestination(for: UserRow.self) { u in
+                UserDetailView(userId: u.userId, name: u.name)
+                    .environmentObject(store)
+                    .environmentObject(settings)
+            }
         }
         .frame(minWidth: 820, minHeight: 640)
         .background(Theme.panelBg)
@@ -122,7 +132,26 @@ struct DashboardView: View {
 
     private var charts: some View {
         HStack(alignment: .top, spacing: 16) {
-            panel("CO₂ by user over time") { timeChart }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("CO₂ over time").font(.headline)
+                    Spacer()
+                    Picker("", selection: $timeBy) {
+                        Text("by user").tag("user")
+                        Text("by work type").tag("category")
+                    }
+                    .pickerStyle(.segmented).fixedSize()
+                }
+                if timeBy == "category" {
+                    CategoryTimelineChart(points: store.categoriesOverTime)
+                } else {
+                    timeChart
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
+            .background(Theme.cardBg, in: RoundedRectangle(cornerRadius: 10))
+
             panel("Tokens by model") { modelChart }
         }
     }
@@ -179,8 +208,13 @@ struct DashboardView: View {
     }
 
     private var modelPiePanel: some View {
-        panel("Model favourites (by tokens)") {
-            ModelPieChart(models: store.models)
+        HStack(alignment: .top, spacing: 16) {
+            panel("Model favourites (by tokens)") {
+                ModelPieChart(models: store.models)
+            }
+            panel("Work types") {
+                CategoryBarChart(categories: store.categories)
+            }
         }
     }
 
@@ -206,17 +240,16 @@ struct DashboardView: View {
                 }
                 .frame(minHeight: 220, maxHeight: 420)
                 .onChange(of: selectedUserID) { _, id in
-                    if let id, let u = rows.first(where: { $0.id == id }) { presentedUser = u }
+                    // Drill down in the same window rather than a popup sheet.
+                    if let id, let u = rows.first(where: { $0.id == id }) {
+                        path.append(u)
+                        selectedUserID = nil
+                    }
                 }
             }
         }
         .padding(14)
         .background(Theme.cardBg, in: RoundedRectangle(cornerRadius: 10))
-        .sheet(item: $presentedUser, onDismiss: { selectedUserID = nil }) { u in
-            UserDetailView(userId: u.userId, name: u.name)
-                .environmentObject(store)
-                .environmentObject(settings)
-        }
     }
 
     private func errorBanner(_ msg: String) -> some View {

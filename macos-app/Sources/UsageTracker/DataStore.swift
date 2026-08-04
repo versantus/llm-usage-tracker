@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 
@@ -14,7 +15,9 @@ enum LoadState: Equatable {
 final class DataStore: ObservableObject {
     @Published var summary: Summary?
     @Published var models: [ModelRow] = []
+    @Published var categories: [CategoryRow] = []
     @Published var overTime: [OverTimeRow] = []
+    @Published var categoriesOverTime: [CategoryOverTimeRow] = []
     @Published var state: LoadState = .idle
     @Published var lastUpdated: Date?
     @Published var live = false
@@ -22,6 +25,7 @@ final class DataStore: ObservableObject {
     private let settings: AppSettings
     private var sseTask: Task<Void, Never>?
     private var timer: Timer?
+    private var debounceTask: Task<Void, Never>?
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -49,7 +53,7 @@ final class DataStore: ObservableObject {
         d == d.rounded() ? String(Int(d)) : String(d)
     }
 
-    private func fetch<T: Decodable>(_ path: String, as type: T.Type, withRange: Bool = true) async throws -> T {
+    private func fetch<T: Decodable & Sendable>(_ path: String, as type: T.Type, withRange: Bool = true) async throws -> T {
         guard let req = request(path, withRange: withRange) else {
             throw AppError.notConfigured
         }
@@ -60,7 +64,11 @@ final class DataStore: ObservableObject {
         guard (200..<300).contains(http.statusCode) else {
             throw AppError.network("HTTP \(http.statusCode)")
         }
-        return try makeDecoder().decode(T.self, from: data)
+        // Decode off the main actor — large all-time payloads would otherwise
+        // stall the UI on every refresh.
+        return try await Task.detached(priority: .userInitiated) {
+            try makeDecoder().decode(T.self, from: data)
+        }.value
     }
 
     func refresh() async {
@@ -73,9 +81,20 @@ final class DataStore: ObservableObject {
             async let summary = fetch("/api/summary", as: Summary.self)
             async let models = fetch("/api/by-model", as: [ModelRow].self)
             async let time = fetch("/api/over-time", as: [OverTimeRow].self)
-            self.summary = try await summary
-            self.models = try await models
-            self.overTime = try await time
+            // Category endpoints are absent on pre-v1.2 servers — degrade to empty.
+            async let cats = fetch("/api/by-category", as: [CategoryRow].self)
+            async let catTime = fetch("/api/over-time?by=category", as: [CategoryOverTimeRow].self)
+
+            // Await everything, then assign in one burst — three staggered
+            // @Published writes would invalidate every observing view thrice.
+            let (s, m, t) = try await (summary, models, time)
+            let c = (try? await cats) ?? []
+            let ct = (try? await catTime) ?? []
+            self.summary = s
+            self.models = m
+            self.overTime = t
+            self.categories = c
+            self.categoriesOverTime = ct
             self.lastUpdated = Date()
             self.state = .loaded
         } catch {
@@ -113,8 +132,34 @@ final class DataStore: ObservableObject {
         Task { await refresh() }
         startSSE()
         // Fallback poll in case SSE drops or the endpoint is gated differently.
+        // Skipped while nothing is visible — a hidden menu-bar app shouldn't
+        // hammer the server; we catch up the moment it's looked at again.
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.somethingVisible else { return }
+                await self.refresh()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
+        }
+    }
+
+    private var somethingVisible: Bool {
+        NSApp.isActive || NSApp.windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) }
+    }
+
+    /// Coalesce bursts of SSE events into one refresh per second; hidden apps
+    /// skip entirely (the activate observer / timer catches them up).
+    private func scheduleRefresh() {
+        guard somethingVisible else { return }
+        guard debounceTask == nil else { return }
+        debounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            await MainActor.run { self?.debounceTask = nil }
+            await self?.refresh()
         }
     }
 
@@ -143,11 +188,17 @@ final class DataStore: ObservableObject {
                         throw AppError.network("SSE HTTP \(http.statusCode)")
                     }
                     await MainActor.run { self?.live = true }
+                    // Refresh only on real `session` events (each frame is an
+                    // `event:` line then a `data:` line — reacting to both
+                    // doubled every refresh, and heartbeat pings shouldn't
+                    // trigger any).
+                    var currentEvent = ""
                     for try await line in bytes.lines {
                         if Task.isCancelled { break }
-                        // Any data frame means something changed -> refresh.
-                        if line.hasPrefix("data:") || line.hasPrefix("event:") {
-                            await self?.refresh()
+                        if line.hasPrefix("event:") {
+                            currentEvent = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
+                        } else if line.hasPrefix("data:"), currentEvent == "session" {
+                            await self?.scheduleRefresh()
                         }
                     }
                 } catch {

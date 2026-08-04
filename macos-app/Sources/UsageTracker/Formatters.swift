@@ -18,11 +18,17 @@ enum Fmt {
         (energyWh / 1000) * waterLPerKWh
     }
 
-    static func int(_ n: Double) -> String {
+    // Cached: NumberFormatter construction is expensive and this runs per table
+    // cell per render.
+    private static let intFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.maximumFractionDigits = 0
-        return f.string(from: NSNumber(value: n.rounded())) ?? "0"
+        return f
+    }()
+
+    static func int(_ n: Double) -> String {
+        intFormatter.string(from: NSNumber(value: n.rounded())) ?? "0"
     }
 
     static func tokens(_ n: Double) -> String {
@@ -62,25 +68,25 @@ enum Fmt {
     static func cupsOfTea(energyWh: Double) -> Double { energyWh / kettleCupWh }
     static func waterBottles(energyWh: Double) -> Double { waterLitres(energyWh) / waterBottleL }
 
+    private static let trailingDate = try! NSRegularExpression(pattern: "-[0-9]{8}$")
+
     /// Short model label: drop the leading "claude-" and trailing date.
     static func shortModel(_ id: String) -> String {
         var s = id
         if s.hasPrefix("claude-") { s.removeFirst("claude-".count) }
-        // strip trailing -YYYYMMDD
-        if let r = s.range(of: "-[0-9]{8}$", options: .regularExpression) {
+        let range = NSRange(s.startIndex..., in: s)
+        if let m = trailingDate.firstMatch(in: s, range: range), let r = Range(m.range, in: s) {
             s.removeSubrange(r)
         }
         return s
     }
 
-    /// Time-series bucket key -> short axis label. Hourly keys carry a 'T'.
+    /// Time-series bucket key -> short axis label. Hourly keys carry a 'T';
+    /// monthly keys ('YYYY-MM', all-time/wide ranges) stay whole.
     static func bucket(_ key: String) -> String {
-        if key.contains("T") {
-            // 'YYYY-MM-DDTHH:00' -> 'HH:00'
-            return String(key.suffix(5))
-        }
-        // 'YYYY-MM-DD' -> 'MM-DD'
-        return String(key.suffix(5))
+        if key.contains("T") { return String(key.suffix(5)) } // 'HH:00'
+        if key.count == 7 { return key } // 'YYYY-MM'
+        return String(key.suffix(5)) // 'MM-DD'
     }
 
     static func rangeLabel(_ d: Double) -> String {

@@ -74,7 +74,6 @@ function migrate(db: Database): void {
             );
 
             CREATE INDEX IF NOT EXISTS idx_sessions_user    ON sessions(user_id);
-            CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
             CREATE INDEX IF NOT EXISTS idx_sessions_model   ON sessions(primary_model);
             CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
         `);
@@ -108,13 +107,37 @@ function migrate(db: Database): void {
     }
 
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+
+    // Idempotent index upkeep (runs on every boot, cheap when already applied).
+    // Range filters and time buckets use updated_at — without these, every
+    // dashboard aggregate is a full table scan.
+    db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_sessions_updated      ON sessions(updated_at);
+        CREATE INDEX IF NOT EXISTS idx_sessions_user_updated ON sessions(user_id, updated_at);
+        DROP INDEX IF EXISTS idx_sessions_started;
+    `);
 }
 
 /**
  * Upsert a user + session from an ingest event. Absolute totals overwrite.
  * Preserves the original started_at on conflict.
  */
-export function upsertEvent(db: Database, e: IngestEvent): void {
+export const upsertEvent = (db: Database, e: IngestEvent): void => {
+    // One transaction -> one WAL commit for the two statements.
+    upsertTxn(db)(db, e);
+};
+
+const txnCache = new WeakMap<Database, (db: Database, e: IngestEvent) => void>();
+function upsertTxn(db: Database) {
+    let txn = txnCache.get(db);
+    if (!txn) {
+        txn = db.transaction((d: Database, ev: IngestEvent) => doUpsert(d, ev)) as any;
+        txnCache.set(db, txn!);
+    }
+    return txn!;
+}
+
+function doUpsert(db: Database, e: IngestEvent): void {
     const now = new Date().toISOString();
 
     db.query(
@@ -190,17 +213,24 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
 // Time-range filters use `updated_at` (session ACTIVE within the window), not
 // `started_at`. Long-lived sessions — Cowork especially — can start days ago but
 // still be appended to now; filtering by started_at hid that recent activity.
+//
+// The timestamp is BOUND ($since), never interpolated: bun:sqlite caches
+// prepared statements by SQL text, so an embedded per-request timestamp would
+// re-prepare every query and grow the cache without bound.
 function sinceClause(days?: number): string {
-    if (!days || days <= 0) return '';
-    const since = new Date(Date.now() - days * 86400_000).toISOString();
-    return `WHERE updated_at >= '${since}'`;
+    return days && days > 0 ? `WHERE updated_at >= $since` : '';
 }
 
 /** Like sinceClause but for appending to an existing WHERE (e.g. WHERE user_id = ?). */
 function andSince(days?: number): string {
-    if (!days || days <= 0) return '';
-    const since = new Date(Date.now() - days * 86400_000).toISOString();
-    return ` AND updated_at >= '${since}'`;
+    return days && days > 0 ? ` AND updated_at >= $since` : '';
+}
+
+/** Bind values matching sinceClause/andSince (empty when unranged). */
+function sinceParams(days?: number): Record<string, string> {
+    return days && days > 0
+        ? { $since: new Date(Date.now() - days * 86400_000).toISOString() }
+        : {};
 }
 
 type ModelRow = {
@@ -279,7 +309,7 @@ export function summaryByUser(db: Database, days?: number) {
              GROUP BY s.user_id
              ORDER BY co2_grams DESC`
         )
-        .all();
+        .all(sinceParams(days));
 }
 
 /** Per-model rollup: breaks down sessions by their full models_used breakdown, not just primary_model. */
@@ -290,7 +320,7 @@ export function summaryByModel(db: Database, days?: number) {
              FROM sessions
              ${sinceClause(days)}`
         )
-        .all() as ModelRow[];
+        .all(sinceParams(days)) as ModelRow[];
     return aggregateModels(rows);
 }
 
@@ -307,7 +337,7 @@ export function summaryByProvider(db: Database, days?: number) {
              GROUP BY provider
              ORDER BY co2_grams DESC`
         )
-        .all();
+        .all(sinceParams(days));
 }
 
 /**
@@ -316,9 +346,11 @@ export function summaryByProvider(db: Database, days?: number) {
  * Bucketed by `updated_at` to match the range filter (when a session was active).
  */
 function timeBucket(days?: number): string {
-    return days != null && days > 0 && days <= 2
-        ? `strftime('%Y-%m-%dT%H:00', updated_at)`
-        : `date(updated_at)`;
+    if (days != null && days > 0 && days <= 2) return `strftime('%Y-%m-%dT%H:00', updated_at)`;
+    // Unranged ("all time") or very wide ranges bucket monthly so the payload
+    // and chart node count stay bounded regardless of history length.
+    if (!days || days <= 0 || days > 120) return `strftime('%Y-%m', updated_at)`;
+    return `date(updated_at)`;
 }
 
 /** Time-series per user (for stacked charts), bucketed by hour or day per range. */
@@ -334,7 +366,7 @@ export function overTime(db: Database, days?: number) {
              GROUP BY day, s.user_id
              ORDER BY day ASC`
         )
-        .all();
+        .all(sinceParams(days));
 }
 
 /** Per-work-type rollup. */
@@ -351,7 +383,7 @@ export function summaryByCategory(db: Database, days?: number) {
              GROUP BY category
              ORDER BY tokens DESC`
         )
-        .all();
+        .all(sinceParams(days));
 }
 
 /** Per-work-type rollup for one user. */
@@ -366,7 +398,23 @@ export function categoriesForUser(db: Database, userId: string, days?: number) {
              GROUP BY category
              ORDER BY tokens DESC`
         )
-        .all({ $id: userId });
+        .all({ $id: userId, ...sinceParams(days) });
+}
+
+/** Time-series per work type (stacked charts), bucketed like overTime. */
+export function overTimeByCategory(db: Database, days?: number) {
+    return db
+        .query(
+            `SELECT ${timeBucket(days)} AS day,
+                    category,
+                    COALESCE(SUM(total_tokens), 0) AS tokens,
+                    COALESCE(SUM(co2_grams), 0) AS co2_grams
+             FROM sessions
+             ${sinceClause(days)}
+             GROUP BY day, category
+             ORDER BY day ASC`
+        )
+        .all(sinceParams(days));
 }
 
 /** Grand totals. */
@@ -380,7 +428,7 @@ export function totals(db: Database, days?: number) {
                     COALESCE(SUM(co2_grams), 0) AS co2_grams
              FROM sessions ${sinceClause(days)}`
         )
-        .get();
+        .get(sinceParams(days));
 }
 
 /** Recent sessions for a user, optionally restricted to the last `days`. */
@@ -392,7 +440,7 @@ export function sessionsForUser(db: Database, userId: string, days?: number, lim
              FROM sessions WHERE user_id = $id${andSince(days)}
              ORDER BY updated_at DESC LIMIT $limit`
         )
-        .all({ $id: userId, $limit: limit });
+        .all({ $id: userId, $limit: limit, ...sinceParams(days) });
 }
 
 /** Identity row for a single user (or null if unknown). */
@@ -409,7 +457,7 @@ export function modelsForUser(db: Database, userId: string, days?: number) {
             `SELECT models_used, energy_wh, co2_grams, carbon_approx
              FROM sessions WHERE user_id = $id${andSince(days)}`
         )
-        .all({ $id: userId }) as ModelRow[];
+        .all({ $id: userId, ...sinceParams(days) }) as ModelRow[];
     return aggregateModels(rows);
 }
 
@@ -425,7 +473,7 @@ export function overTimeForUser(db: Database, userId: string, days?: number) {
              GROUP BY day
              ORDER BY day ASC`
         )
-        .all({ $id: userId });
+        .all({ $id: userId, ...sinceParams(days) });
 }
 
 /** Per-(app × device) breakdown for one user, e.g. "cowork × macOS". */
@@ -442,5 +490,5 @@ export function appDeviceForUser(db: Database, userId: string, days?: number) {
              GROUP BY surface, device_name
              ORDER BY tokens DESC`
         )
-        .all({ $id: userId });
+        .all({ $id: userId, ...sinceParams(days) });
 }

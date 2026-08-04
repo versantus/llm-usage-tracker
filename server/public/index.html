@@ -11,6 +11,7 @@
         <div class="title">
             <h1>Claude Usage Tracker</h1>
             <span class="live" id="live">● live</span>
+            <span class="updated" id="updated"></span>
         </div>
         <div class="controls">
             <label for="range">Range</label>
@@ -30,7 +31,13 @@
 
     <section class="grid">
         <div class="panel">
-            <h2>CO₂ by user over time</h2>
+            <div class="panel-head">
+                <h2>CO₂ over time</h2>
+                <select id="time-by" aria-label="Stack by">
+                    <option value="user">by user</option>
+                    <option value="category">by work type</option>
+                </select>
+            </div>
             <div id="chart-time" class="chart"></div>
         </div>
         <div class="panel">

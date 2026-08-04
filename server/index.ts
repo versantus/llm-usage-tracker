@@ -17,6 +17,7 @@ import {
     modelsForUser,
     openDb,
     overTime,
+    overTimeByCategory,
     overTimeForUser,
     sessionsForUser,
     summaryByCategory,
@@ -97,6 +98,15 @@ function ingestGate(req: Request): Response | null {
 
 const db = openDb();
 
+function staticResponse(req: Request, path: string): Response {
+    const f = Bun.file(path);
+    const etag = `"${f.size}-${f.lastModified}"`;
+    if (req.headers.get('if-none-match') === etag) {
+        return new Response(null, { status: 304, headers: { etag } });
+    }
+    return new Response(f, { headers: { etag, 'cache-control': 'no-cache' } });
+}
+
 function daysParam(url: URL): number | undefined {
     const v = url.searchParams.get('days');
     if (!v) return undefined;
@@ -147,7 +157,12 @@ const server = Bun.serve({
             return Response.json(summaryByCategory(db, daysParam(url)));
         }
         if (pathname === '/api/over-time') {
-            return Response.json(overTime(db, daysParam(url)));
+            const days = daysParam(url);
+            return Response.json(
+                url.searchParams.get('by') === 'category'
+                    ? overTimeByCategory(db, days)
+                    : overTime(db, days)
+            );
         }
         if (pathname.startsWith('/api/by-user/')) {
             let userId: string;
@@ -167,12 +182,12 @@ const server = Bun.serve({
             });
         }
 
-        // --- Static dashboard ---
+        // --- Static dashboard (ETag so repeat loads 304 instead of re-downloading) ---
         if (pathname === '/' || pathname === '/index.html') {
-            return new Response(Bun.file(join(PUBLIC_DIR, 'index.html')));
+            return staticResponse(req, join(PUBLIC_DIR, 'index.html'));
         }
         if (pathname === '/dashboard.js' || pathname === '/styles.css') {
-            return new Response(Bun.file(join(PUBLIC_DIR, pathname.slice(1))));
+            return staticResponse(req, join(PUBLIC_DIR, pathname.slice(1)));
         }
 
         return new Response('Not found', { status: 404 });

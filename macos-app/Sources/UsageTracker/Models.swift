@@ -11,7 +11,7 @@ struct Totals: Decodable {
     var co2Grams: Double = 0
 }
 
-struct UserRow: Decodable, Identifiable {
+struct UserRow: Decodable, Identifiable, Hashable {
     var userId: String
     var name: String
     var email: String
@@ -57,6 +57,27 @@ struct OverTimeRow: Decodable {
     var co2Grams: Double
 }
 
+/// /api/over-time?by=category — stacked work-type time series.
+struct CategoryOverTimeRow: Decodable, Identifiable {
+    var day: String
+    var category: String
+    var tokens: Double
+    var co2Grams: Double
+
+    var id: String { "\(day)|\(category)" }
+}
+
+/// /api/by-category (global includes energy_wh; the per-user rollup doesn't).
+struct CategoryRow: Decodable, Identifiable {
+    var category: String
+    var sessions: Int
+    var tokens: Double
+    var energyWh: Double?
+    var co2Grams: Double
+
+    var id: String { category }
+}
+
 // --- per-user drill-down (/api/by-user/:id) ---
 
 struct AppDeviceRow: Decodable, Identifiable {
@@ -79,6 +100,8 @@ struct SessionRow: Decodable, Identifiable {
     var deviceName: String
     var primaryModel: String
     var cwd: String
+    /// Work-type label (absent on pre-v1.2 servers).
+    var category: String?
     var totalTokens: Double
     var energyWh: Double
     var co2Grams: Double
@@ -109,6 +132,8 @@ struct UserDetail: Decodable {
     var user: UserIdentity?
     var models: [ModelRow]
     var appDevice: [AppDeviceRow]
+    /// Work-type rollup (absent on pre-v1.2 servers).
+    var categories: [CategoryRow]?
     var overTime: [UserOverTimeRow]
     var sessions: [SessionRow]
 }

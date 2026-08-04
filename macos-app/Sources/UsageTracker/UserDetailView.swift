@@ -8,7 +8,6 @@ struct UserDetailView: View {
 
     @EnvironmentObject var store: DataStore
     @EnvironmentObject var settings: AppSettings
-    @Environment(\.dismiss) private var dismiss
 
     @State private var detail: UserDetail?
     @State private var error: String?
@@ -20,9 +19,10 @@ struct UserDetailView: View {
             Divider()
             content
         }
-        .frame(width: 640, height: 560)
+        .frame(minWidth: 640, minHeight: 560)
         .background(Theme.panelBg)
         .preferredColorScheme(.dark)
+        .navigationTitle(name)
         .task(id: settings.rangeDays) { await load() }
     }
 
@@ -34,13 +34,15 @@ struct UserDetailView: View {
             }
             Spacer()
             Text(Fmt.rangeLabel(settings.rangeDays)).font(.caption).foregroundStyle(Theme.muted)
-            Button("Done") { dismiss() }
+            if loading, detail != nil { ProgressView().controlSize(.small) }
         }
         .padding(16)
     }
 
     @ViewBuilder private var content: some View {
-        if loading {
+        // Full-screen spinner only on FIRST load; range changes overlay the
+        // small header spinner instead of blanking the previous data.
+        if loading, detail == nil {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error {
             Label(error, systemImage: "exclamationmark.triangle")
@@ -61,6 +63,10 @@ struct UserDetailView: View {
                         section("Model favourites") {
                             ModelPieChart(models: d.models)
                         }
+                    }
+
+                    section("Work types") {
+                        CategoryBarChart(categories: d.categories ?? [])
                     }
 
                     section("By model") {
@@ -116,6 +122,13 @@ struct UserDetailView: View {
                 Text("\(s.surface) · \(Fmt.shortModel(s.primaryModel))").lineLimit(1)
                 Text(shortDate(s.startedAt) + (s.cwd.isEmpty ? "" : " · " + (s.cwd as NSString).lastPathComponent))
                     .font(.caption2).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            if let cat = s.category, cat != "unknown" {
+                Text(cat)
+                    .font(.caption2)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Theme.categoryColor(cat).opacity(0.18), in: Capsule())
+                    .foregroundStyle(Theme.categoryColor(cat))
             }
             Spacer()
             Text(Fmt.tokens(s.totalTokens)).monospacedDigit().frame(width: 80, alignment: .trailing)

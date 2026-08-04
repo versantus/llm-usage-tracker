@@ -119,3 +119,13 @@ footer { color: var(--muted); font-size: 12px; padding: 8px 28px 30px; }
     .modal-grid { grid-template-columns: 1fr; }
     .equiv .dot { margin: 0 5px; }
 }
+
+/* last-refresh stamp + stale marker */
+.updated { color: var(--muted); font-size: 12px; }
+.updated.stale { color: #f59e0b; }
+.updated.stale::after { content: ' (stale)'; }
+
+/* panel header with an inline control (e.g. the time-chart series toggle) */
+.panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.panel-head h2 { margin: 0; }
+.panel-head select { font-size: 12px; }

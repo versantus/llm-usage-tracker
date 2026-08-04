@@ -11,11 +11,16 @@ if (savedRange && [...rangeEl.options].some((o) => o.value === savedRange)) {
     rangeEl.value = savedRange;
 }
 let days = Number(rangeEl.value);
+let timeBy = localStorage.getItem('timeBy') === 'category' ? 'category' : 'user';
 
 rangeEl.addEventListener('change', () => {
     days = Number(rangeEl.value);
     localStorage.setItem('range', rangeEl.value);
     refresh();
+    // Keep an open drill-down in sync with the new range.
+    if (currentUser && !modal.classList.contains('hidden')) {
+        openUser(currentUser.id, currentUser.name);
+    }
 });
 
 function fmtInt(n) {
@@ -66,45 +71,85 @@ function rangeLabel(d) {
     if (d === 1) return 'last 24 hours';
     return `last ${d} days`;
 }
-// Time-series bucket key -> short axis label. Hourly keys carry a 'T'.
+// Time-series bucket key -> short axis label. Hourly keys carry a 'T';
+// monthly keys ('YYYY-MM', used for all-time/wide ranges) stay whole.
 function fmtBucket(key) {
-    return key.includes('T') ? key.slice(11) : key.slice(5); // 'HH:00' or 'MM-DD'
+    if (key.includes('T')) return key.slice(11); // 'HH:00'
+    if (key.length === 7) return key; // 'YYYY-MM'
+    return key.slice(5); // 'MM-DD'
 }
 
 function qs(path) {
     return days ? `${path}?days=${days}` : path;
 }
 
+// Last successful payloads — kept so resize/toggles re-render without refetching.
+let last = null;
+const updatedEl = document.getElementById('updated');
+
+function renderAll() {
+    if (!last) return;
+    renderCards(last.summary.totals);
+    renderEquiv(last.summary.totals);
+    renderProviders(last.summary.byProvider);
+    renderUsers(last.summary.byUser);
+    renderModelChart(last.byModel);
+    renderCategoryChart(last.byCategory);
+    if (timeBy === 'category') renderTimeChart(last.timeCat, null, 'category', categoryColor);
+    else renderTimeChart(last.time, last.summary.byUser, 'user');
+}
+
 async function refresh() {
     try {
-        const [summary, byModel, byCategory, time] = await Promise.all([
+        const [summary, byModel, byCategory, time, timeCat] = await Promise.all([
             fetch(qs('/api/summary')).then((r) => r.json()),
             fetch(qs('/api/by-model')).then((r) => r.json()),
             fetch(qs('/api/by-category')).then((r) => r.json()),
-            fetch(qs('/api/over-time')).then((r) => r.json())
+            fetch(qs('/api/over-time')).then((r) => r.json()),
+            fetch(qs('/api/over-time') + (days ? '&' : '?') + 'by=category').then((r) => r.json())
         ]);
-        renderCards(summary.totals);
-        renderEquiv(summary.totals);
-        renderProviders(summary.byProvider);
-        renderUsers(summary.byUser);
-        renderModelChart(byModel);
-        renderCategoryChart(byCategory);
-        renderTimeChart(time, summary.byUser);
+        last = { summary, byModel, byCategory, time, timeCat };
+        renderAll();
+        if (updatedEl) {
+            updatedEl.textContent = 'updated ' + new Date().toLocaleTimeString().slice(0, 5);
+            updatedEl.classList.remove('stale');
+        }
     } catch (err) {
-        // Transient fetch failure (server restart etc.) — keep the last render.
+        // Transient fetch failure (server restart etc.) — keep the last render
+        // but mark it visibly stale.
         console.warn('refresh failed', err);
+        if (updatedEl) updatedEl.classList.add('stale');
     }
 }
 
-// Coalesce bursts of SSE events into one refresh per second.
+// Coalesce bursts of SSE events into one refresh per second; hidden tabs just
+// mark themselves dirty and catch up when they become visible again.
 let refreshTimer = null;
+let dirtyWhileHidden = false;
 function scheduleRefresh() {
+    if (document.hidden) {
+        dirtyWhileHidden = true;
+        return;
+    }
     if (refreshTimer) return;
     refreshTimer = setTimeout(() => {
         refreshTimer = null;
         refresh();
     }, 1000);
 }
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && dirtyWhileHidden) {
+        dirtyWhileHidden = false;
+        refresh();
+    }
+});
+
+// Re-render charts (from cached data) when the window is resized.
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderAll, 200);
+});
 
 function renderCards(t) {
     const cards = [
@@ -173,10 +218,13 @@ function renderUsers(rows) {
             );
         })
         .join('');
-    tbody.querySelectorAll('tr[data-user-id]').forEach((tr) => {
-        tr.addEventListener('click', () => openUser(tr.dataset.userId, tr.dataset.userName));
-    });
 }
+
+// One delegated click listener survives every tbody rebuild.
+document.querySelector('#user-table tbody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-user-id]');
+    if (tr) openUser(tr.dataset.userId, tr.dataset.userName);
+});
 
 // --- Horizontal bar chart: tokens by model ---
 function renderModelChart(rows, host = document.getElementById('chart-model')) {
@@ -255,8 +303,12 @@ function renderCategoryChart(rows, host = document.getElementById('chart-categor
     host.replaceChildren(svg);
 }
 
-// --- Stacked area-ish bars: CO2 per day, stacked by user ---
-function renderTimeChart(rows, users) {
+function categoryColor(name) {
+    return CATEGORY_COLORS[name] || CATEGORY_COLORS.other;
+}
+
+// --- Stacked bars over time: CO2 per bucket, stacked by user OR work type ---
+function renderTimeChart(rows, users, keyField = 'user', colorFor = null) {
     const host = document.getElementById('chart-time');
     if (!rows || !rows.length) {
         host.innerHTML = `<div class="empty">No data</div>`;
@@ -264,14 +316,16 @@ function renderTimeChart(rows, users) {
     }
     const userColor = {};
     (users || []).forEach((u, i) => (userColor[u.name] = PALETTE[i % PALETTE.length]));
+    const color = colorFor || ((name) => userColor[name] || '#60a5fa');
 
-    // group by day -> {user: co2}
+    // group by day -> {series: co2}
     const days = [...new Set(rows.map((r) => r.day))].sort();
     const byDay = {};
     for (const d of days) byDay[d] = {};
     let maxTotal = 0;
     for (const r of rows) {
-        byDay[r.day][r.user] = (byDay[r.day][r.user] || 0) + r.co2_grams;
+        const key = r[keyField];
+        byDay[r.day][key] = (byDay[r.day][key] || 0) + r.co2_grams;
     }
     for (const d of days) {
         const total = Object.values(byDay[d]).reduce((a, b) => a + b, 0);
@@ -301,15 +355,15 @@ function renderTimeChart(rows, users) {
         const x = padL + i * slot + (slot - barW) / 2;
         let yTop = padT + plotH;
         const stacks = Object.entries(byDay[d]).sort((a, b) => b[1] - a[1]);
-        for (const [user, co2] of stacks) {
+        for (const [series, co2] of stacks) {
             const segH = (co2 / maxTotal) * plotH;
             yTop -= segH;
             const rect = el('rect', {
                 x, y: yTop, width: barW, height: Math.max(segH, 0.5), rx: 2,
-                fill: userColor[user] || '#60a5fa'
+                fill: color(series)
             });
             rect.appendChild(
-                el('title', {}, `${user} — ${d}: ${fmtCO2(co2)} ≈ ${fmtNum((co2 / 1000) * MILES_PER_KG_CO2)} mi driven`)
+                el('title', {}, `${series} — ${d}: ${fmtCO2(co2)} ≈ ${fmtNum((co2 / 1000) * MILES_PER_KG_CO2)} mi driven`)
             );
             svg.appendChild(rect);
         }
@@ -339,8 +393,10 @@ function escapeHtml(s) {
 
 // --- Per-user drill-down modal ---
 const modal = document.getElementById('user-modal');
+let currentUser = null; // {id, name} while the modal is open — re-fetched on range change
 
 async function openUser(userId, fallbackName) {
+    currentUser = { id: userId, name: fallbackName };
     document.getElementById('detail-name').textContent = fallbackName || 'User';
     document.getElementById('detail-sub').textContent = 'Loading…';
     document.getElementById('detail-model').innerHTML = '';
@@ -457,6 +513,7 @@ function renderUserSessions(rows) {
 }
 
 function closeModal() {
+    currentUser = null;
     modal.classList.add('hidden');
     modal.setAttribute('aria-hidden', 'true');
 }
@@ -476,6 +533,17 @@ function connectSSE() {
     });
     es.onopen = () => liveEl.classList.remove('off');
     es.onerror = () => liveEl.classList.add('off');
+}
+
+// Time-chart series toggle (by user / by work type).
+const timeByEl = document.getElementById('time-by');
+if (timeByEl) {
+    timeByEl.value = timeBy;
+    timeByEl.addEventListener('change', () => {
+        timeBy = timeByEl.value;
+        localStorage.setItem('timeBy', timeBy);
+        renderAll();
+    });
 }
 
 refresh();
