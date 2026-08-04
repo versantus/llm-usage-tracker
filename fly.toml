@@ -4,13 +4,15 @@
 # ONE machine with a persistent volume mounted at /data. Do NOT scale to >1 machine
 # (each machine gets its own volume → split-brain data). See AGENTS.md / DEPLOY.md.
 #
-# `app` and `primary_region` below are placeholders — set your own with `flyctl launch`,
-# or override at deploy time with `flyctl deploy --app <name>`.
+# `app` below is a placeholder — the CI deploy passes the real name via
+# `flyctl deploy --app` (FLY_APP_NAME secret). `primary_region` must be REAL:
+# machine re-creation matches volumes by region, and a placeholder region
+# strands the app with zero machines if a deploy ever needs to recreate one.
 #
 # See https://fly.io/docs/reference/configuration/ for the full reference.
 
 app = 'your-app-name'
-primary_region = 'your-region'
+primary_region = 'lhr'
 
 [build]
 
