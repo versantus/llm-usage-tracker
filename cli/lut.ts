@@ -75,7 +75,7 @@ import {
     wireClaudeCodeHook
 } from '../client/wire-hook.ts';
 
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 
 /**
  * Positional args, normalised across platforms. `bun --compile` lays out
@@ -248,10 +248,31 @@ async function cmdConnect(): Promise<void> {
     console.error('\nDone. Claude Code reports on each Stop; other tools via their watchers.');
 }
 
+/** Surfaces the Windows tray is configured to watch (null = tray never ran). */
+function windowsTraySurfaces(): Set<string> | null {
+    try {
+        const p = `${process.env.LOCALAPPDATA}\\llm-usage-tracker\\tray-surfaces.json`;
+        return new Set(JSON.parse(require('node:fs').readFileSync(p, 'utf-8')));
+    } catch {
+        return null;
+    }
+}
+
 function surfaceState(name: string): string {
     const def = SURFACES[name];
     if (!def.available()) return 'not detected';
-    return agentEnabled(name) ? 'watcher enabled' : `detected, watcher OFF (run \`lut ${name} enable\`)`;
+    if (process.platform === 'darwin') {
+        return agentEnabled(name)
+            ? 'watcher enabled'
+            : `detected, watcher OFF (run \`lut ${name} enable\`)`;
+    }
+    if (process.platform === 'win32') {
+        // Windows has no LaunchAgent — the tray (`lut gui`) supervises watchers.
+        const tray = windowsTraySurfaces();
+        if (tray && !tray.has(name)) return 'detected, watcher OFF (enable it in the tray settings)';
+        return 'detected — watched while the tray runs (`lut gui`)';
+    }
+    return `detected — run \`lut watch-${name}\` under your service manager`;
 }
 
 async function cmdStatus(): Promise<void> {
