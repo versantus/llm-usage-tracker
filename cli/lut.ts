@@ -22,6 +22,7 @@ import {
     configPath,
     defaultServerUrl,
     detectDeviceName,
+    envFallbackConfig,
     loadConfig,
     saveConfig
 } from '../client/config.ts';
@@ -75,7 +76,7 @@ import {
     wireClaudeCodeHook
 } from '../client/wire-hook.ts';
 
-const VERSION = '1.3.2';
+const VERSION = '1.4.0';
 
 /**
  * Positional args, normalised across platforms. `bun --compile` lays out
@@ -276,9 +277,18 @@ function surfaceState(name: string): string {
 }
 
 async function cmdStatus(): Promise<void> {
-    const cfg = loadConfig();
+    let cfg = loadConfig();
+    let configLine = cfg ? configPath() : 'not configured (run `lut connect`)';
+    if (!cfg) {
+        // Org-managed zero-touch: env vars (managed settings) + git identity.
+        const fallback = envFallbackConfig();
+        if (fallback) {
+            cfg = fallback;
+            configLine = 'org-managed (no local config; using env + git identity)';
+        }
+    }
     console.log('Usage Tracker status');
-    console.log('  config:    ' + (cfg ? configPath() : 'not configured (run `lut connect`)'));
+    console.log('  config:    ' + configLine);
     if (cfg) {
         console.log(`  user:      ${cfg.user.name} <${cfg.user.email}>`);
         console.log(`  device:    ${cfg.deviceName}`);

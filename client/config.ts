@@ -3,6 +3,7 @@
  * ~/.config/llm-usage-tracker/config.json. Env vars override for dev.
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
@@ -69,6 +70,34 @@ export function machineId(): string {
 
 export function defaultServerUrl(): string {
     return process.env.LUT_SERVER_URL || 'http://localhost:4317';
+}
+
+function gitConfig(key: string): string {
+    try {
+        return execFileSync('git', ['config', '--get', key], {
+            encoding: 'utf-8',
+            timeout: 3000,
+            stdio: ['ignore', 'pipe', 'ignore']
+        }).trim();
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Zero-touch fallback for org-managed rollouts: when no config.json exists,
+ * build an ephemeral config from environment (pushed org-wide via Claude
+ * Code's managed settings) + the user's git identity. Returns null unless a
+ * server URL AND an email can be derived — the hook then skips silently.
+ * Nothing is written to disk; `lut connect` still takes precedence when run.
+ */
+export function envFallbackConfig(): ClientConfig | null {
+    const serverUrl = process.env.LUT_SERVER_URL;
+    if (!serverUrl) return null;
+    const email = process.env.LUT_USER_EMAIL || process.env.LUT_EMAIL || gitConfig('user.email');
+    if (!email) return null;
+    const name = process.env.LUT_NAME || gitConfig('user.name') || email.split('@')[0];
+    return buildConfig({ name, email, serverUrl });
 }
 
 export function loadConfig(): ClientConfig | null {

@@ -8,14 +8,16 @@
 import { basename } from 'node:path';
 
 import { queueForReclassify } from '../classify.ts';
-import { loadConfig } from '../config.ts';
+import { envFallbackConfig, loadConfig } from '../config.ts';
 import { postEvent } from '../post.ts';
 import { claudeCodeSource } from '../sources/claude-code-source.ts';
 import { toIngestEvent } from '../sources/source.ts';
 import { log, readStopInput } from './stdin.ts';
 
 export async function stopHookMain(): Promise<void> {
-    const cfg = loadConfig();
+    // Zero-touch: with no local config, fall back to org-pushed env vars
+    // (LUT_SERVER_URL/LUT_INGEST_TOKEN via managed settings) + git identity.
+    const cfg = loadConfig() ?? envFallbackConfig();
     if (!cfg) {
         log('not configured — run `lut connect` (or /usage-tracker:setup). Skipping.');
         return;

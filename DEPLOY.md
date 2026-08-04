@@ -117,3 +117,69 @@ flyctl scale vm shared-cpu-2x --memory 512
 - **Data transfer**: $0.02/GB outbound (usually $0-1/mo for your team)
 
 **Total: ~$7-8/mo for a team of 50.**
+
+## Org-wide rollout via claude.ai (Teams/Enterprise)
+
+Claude Code supports **server-managed settings** pushed from the claude.ai
+admin console: **Admin Settings → Claude Code → Managed settings**. Two tiers —
+use both together:
+
+### Tier 1 — managed CLAUDE.md (self-serve install on request)
+
+The `claudeMd` field injects org-wide instructions into every member's Claude
+Code, so anyone can just type *"set up the usage tracker"* and Claude knows
+exactly what to do.
+
+### Tier 2 — zero-touch (managed hook + env; nothing to install)
+
+Managed settings can push the Stop hook and env vars themselves. The hook
+self-bootstraps `lut` on first run (downloading the latest release binary),
+and from v1.4.0 `lut hook` needs **no local config**: with `LUT_SERVER_URL`
+set it derives the user's identity from `git config user.name/user.email`
+(or `LUT_NAME`/`LUT_EMAIL` env). Users who later run `lut connect` override
+the fallback with their explicit details.
+
+Paste into the managed settings JSON (fill in your token):
+
+```json
+{
+  "env": {
+    "LUT_SERVER_URL": "https://<your-app>.fly.dev",
+    "LUT_INGEST_TOKEN": "<your LUT_INGEST_TOKEN>"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -x \"$HOME/.local/bin/lut\" ] || curl -fsSL https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.sh | LUT_NO_CONNECT=1 bash >/dev/null 2>&1; \"$HOME/.local/bin/lut\" hook'",
+            "async": true,
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  },
+  "claudeMd": "## Team usage tracking\nThis org tracks LLM usage (token counts, carbon estimates and a work-type label only — never prompts or code) on a central dashboard.\nIf the user asks to set up, install, fix or check 'usage tracking' / 'the usage tracker':\n1. Ask for their name, work email, and the ingest token (from 1Password, entry 'usage tracker').\n2. Run: LUT_NAME=\"<name>\" LUT_EMAIL=<email> LUT_SERVER_URL=https://<your-app>.fly.dev LUT_INGEST_TOKEN=<token> bash -c \"$(curl -fsSL https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.sh)\"\n   (Windows PowerShell: set the same values as $env: vars then `irm .../install.ps1 | iex`.)\n3. Verify with `lut status` — report whether it shows 'server up: yes' and 'hook: wired' in plain language.\nOpt-outs: `lut connect --no-category` disables work-type labels."
+}
+```
+
+Notes and caveats:
+
+- **The managed hook command is POSIX `sh`** — it covers macOS/Linux. Windows
+  users still run the installer once (or use the tray); managed hooks are a
+  single command string, so a cross-platform one-liner isn't practical.
+- **Identity in zero-touch mode comes from git config.** If someone's git
+  email is a GitHub noreply address, they'll appear under that address until
+  they run `lut connect` with their work email (which then takes precedence —
+  but shows as a *second* user on the dashboard, since users are keyed by
+  email). Teams that care should still encourage the one-time `lut connect`.
+- **The token is distributed to every org member** via env — it's the same
+  shared ingest token they'd get from 1Password anyway.
+- **Zero-touch covers Claude Code only.** Cowork/Codex/Copilot/etc. watchers
+  still need the one-time installer per machine (Cowork has no managed-settings
+  channel).
+- If a user has BOTH the managed hook and a self-installed hook, sessions are
+  reported twice — harmlessly (the server upserts absolute totals; nothing
+  double-counts).
