@@ -79,8 +79,10 @@ export async function cursorPull(cfg: ClientConfig): Promise<void> {
 
             const model = String(ev.model || ev.modelIntent || 'cursor-unknown');
             const carbon = calculateCarbonFromTokens(outputTokens, model);
-            const ts = ev.timestamp
-                ? new Date(typeof ev.timestamp === 'number' ? ev.timestamp : Date.parse(ev.timestamp)).toISOString()
+            const tsRaw =
+                typeof ev.timestamp === 'number' ? ev.timestamp : Date.parse(String(ev.timestamp ?? ''));
+            const ts = Number.isFinite(tsRaw)
+                ? new Date(tsRaw).toISOString()
                 : new Date().toISOString();
             const sessionId = `cursor:${ev.id ?? ev.requestId ?? `${email}:${ts}`}`;
 

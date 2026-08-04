@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -88,8 +88,12 @@ export function loadConfig(): ClientConfig | null {
 }
 
 export function saveConfig(cfg: ClientConfig): void {
-    mkdirSync(dirname(configPath()), { recursive: true });
-    writeFileSync(configPath(), JSON.stringify(cfg, null, 2));
+    const p = configPath();
+    mkdirSync(dirname(p), { recursive: true });
+    // Write-then-rename so a hook reading mid-save never sees a partial file.
+    const tmp = `${p}.tmp`;
+    writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+    renameSync(tmp, p);
 }
 
 export function buildConfig(opts: {

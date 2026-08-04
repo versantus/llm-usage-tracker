@@ -29,7 +29,10 @@ export function windowsFirstRun(): void {
     for (const path of launchers) {
         try {
             mkdirSync(dirname(path), { recursive: true });
-            writeFileSync(path, vbsBody, 'ascii');
+            // UTF-16LE + BOM: wscript reads it correctly even when the exe path
+            // contains non-ASCII characters (e.g. C:\Users\José). 'ascii' would
+            // strip the high bit and corrupt such paths.
+            writeFileSync(path, '\ufeff' + vbsBody, 'utf16le');
         } catch {
             // ignore — best effort
         }

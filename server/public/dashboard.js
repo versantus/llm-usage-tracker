@@ -76,17 +76,32 @@ function qs(path) {
 }
 
 async function refresh() {
-    const [summary, byModel, time] = await Promise.all([
-        fetch(qs('/api/summary')).then((r) => r.json()),
-        fetch(qs('/api/by-model')).then((r) => r.json()),
-        fetch(qs('/api/over-time')).then((r) => r.json())
-    ]);
-    renderCards(summary.totals);
-    renderEquiv(summary.totals);
-    renderProviders(summary.byProvider);
-    renderUsers(summary.byUser);
-    renderModelChart(byModel);
-    renderTimeChart(time, summary.byUser);
+    try {
+        const [summary, byModel, time] = await Promise.all([
+            fetch(qs('/api/summary')).then((r) => r.json()),
+            fetch(qs('/api/by-model')).then((r) => r.json()),
+            fetch(qs('/api/over-time')).then((r) => r.json())
+        ]);
+        renderCards(summary.totals);
+        renderEquiv(summary.totals);
+        renderProviders(summary.byProvider);
+        renderUsers(summary.byUser);
+        renderModelChart(byModel);
+        renderTimeChart(time, summary.byUser);
+    } catch (err) {
+        // Transient fetch failure (server restart etc.) — keep the last render.
+        console.warn('refresh failed', err);
+    }
+}
+
+// Coalesce bursts of SSE events into one refresh per second.
+let refreshTimer = null;
+function scheduleRefresh() {
+    if (refreshTimer) return;
+    refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        refresh();
+    }, 1000);
 }
 
 function renderCards(t) {
@@ -409,7 +424,7 @@ function connectSSE() {
     es.addEventListener('session', () => {
         liveEl.classList.add('flash');
         setTimeout(() => liveEl.classList.remove('flash'), 300);
-        refresh();
+        scheduleRefresh();
     });
     es.onopen = () => liveEl.classList.remove('off');
     es.onerror = () => liveEl.classList.add('off');

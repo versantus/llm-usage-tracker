@@ -1,96 +1,155 @@
-# llm-usage-tracker
+# LLM Usage Tracker
 
-Centrally track Claude (and other AI tool) **usage and carbon estimates** across your
-team — by **user**, over **time** — with **realtime reports**.
+See how much your team uses Claude (and other AI tools) — tokens, energy,
+carbon and water estimates, per person, live on one dashboard. 🌱
+
+**Nothing sensitive ever leaves your machine.** Only token counts, model names,
+timestamps and your name/email are sent. Never your prompts, code, or files.
+
+---
+
+## Join in (2 minutes, one command)
+
+You need two things from whoever runs your team's dashboard:
+the **server URL** and an **ingest token**. Then:
+
+**Mac / Linux** — open the Terminal app, paste this, press Enter:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.sh | bash
+```
+
+**Windows** — open PowerShell, paste this, press Enter:
+
+```powershell
+irm https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.ps1 | iex
+```
+
+The installer asks for your **name**, **work email**, the **server URL** and
+the **token** — type them in when prompted. That's the whole setup:
+
+- Your Claude Code sessions report automatically from now on.
+- Other AI tools on your machine (Codex, Cowork, Copilot, Gemini, Ollama
+  desktop) are detected and tracked automatically too.
+- On Windows you also get a little tray icon with a settings window.
+
+Your details are saved privately on **your** machine
+(`~/.config/llm-usage-tracker/config.json`) — the token never goes anywhere
+near git or the repo, so there's nothing secret to accidentally publish.
+
+**Check it worked:** run `lut status`. After your next Claude session ends,
+your name appears on the dashboard.
+
+Prefer an app over a terminal? There's a **macOS menu-bar app** and a
+**Windows tray app** that do the same setup with clicks — see
+[INSTALL.md](./INSTALL.md) for those and for per-tool details.
+
+---
+
+## What you get
+
+Open the server URL in your browser: live totals, per-user and per-model
+breakdowns, CO₂ over time, and fun equivalents (cups of tea boiled ☕). It
+updates in realtime as sessions finish.
+
+Or in the terminal:
+
+```bash
+lut report --days 30
+```
+
+---
+
+## For the person running the server
+
+One small service; teammates' machines POST their totals to it. Run it
+anywhere (we use [Fly.io](https://fly.io) — free tier is fine):
+
+```bash
+LUT_DASH_PASS=pick-a-password LUT_INGEST_TOKEN=pick-a-secret bun run server/index.ts
+```
+
+Auth is **fail-closed**: with no secrets set, the server denies everything
+(so forgetting to configure it can never leak data). Secrets live in env vars
+only — nothing goes in git; `.env.local` is gitignored, and
+[.env.local.sample](./.env.local.sample) shows the shape. Full deployment
+guide (Fly.io, Docker, tokens): [DEPLOY.md](./DEPLOY.md).
+
+Hand teammates the server URL + the ingest token, point them at the install
+command above, and you're done.
+
+---
+
+## For developers
 
 A small Bun + TypeScript system in three parts:
 
 | Part | What it does |
 |------|--------------|
-| **client** | A Claude Code plugin (Stop hook) + Cowork watcher. Parses each session's transcript, computes carbon, and POSTs absolute totals to the server tagged with your identity. |
-| **server** | Local `Bun.serve` ingest endpoint + SQLite store + Server-Sent Events + a live dashboard. |
-| **cli** | `cut report` — a terminal usage/carbon report. |
-
-Carbon math is the Jegham et al. methodology (arXiv 2505.09598), vendored from
-CNaught's [carbonlog](https://github.com/CNaught-Inc/claude-code-plugins). Only
-Anthropic models have validated configs; other providers are flagged **approximate**.
-
-## How it works
+| **client** | Claude Code Stop hook + per-tool watchers. Parses local session data, computes carbon, POSTs absolute totals tagged with your identity. |
+| **server** | `Bun.serve` ingest endpoint + SQLite + Server-Sent Events + the live dashboard. |
+| **cli** | The `lut` binary (installer builds/downloads it): connect, status, report, watchers. |
 
 ```
-Claude Code ─ Stop hook ─┐
-                         ├─→ POST /ingest ─→ SQLite ─→ /events (SSE) ─→ live dashboard
-Cowork ─ watcher (poll) ─┘                         └─→ /api/* ───────→ cut report (CLI)
+Claude Code ─ Stop hook ──┐
+                          ├─→ POST /ingest ─→ SQLite ─→ /events (SSE) ─→ live dashboard
+other tools ─ watchers  ──┘                        └──→ /api/* ───────→ lut report
 ```
 
 The client always sends **absolute session totals**; the server upserts by
-`(user_id, session_id)`, so re-sends of a growing session overwrite rather than
-double-count.
+`(user_id, session_id)`, so re-sends of a growing session overwrite rather
+than double-count — retries and duplicates are harmless by design.
 
-## Quick start (local)
+### Local dev quick start
 
 ```bash
 bun install
 
-# 1. Start the central server (http://localhost:4317)
-#    Auth is fail-closed: locally, run it open with LUT_ALLOW_NO_AUTH=1.
-LUT_ALLOW_NO_AUTH=1 bun run server/index.ts
+# 1. Server, running open locally (auth is fail-closed otherwise)
+LUT_ALLOW_NO_AUTH=1 bun run server/index.ts     # http://localhost:4317
 
-# 2. Configure this machine (identity + server URL)
-bun run client/setup.ts --name "You" --email you@example.com
+# 2. Configure this machine + wire the Claude Code hook
+bun cli/lut.ts connect --name "You" --email you@example.com
 
-# 3a. Claude Code: install as a plugin (no remote repo needed for testing)
-#     In Claude Code:
-#       /plugin marketplace add /path/to/llm-usage-tracker
-#       /plugin install usage-tracker@llm-usage-tracker
-#     The Stop hook then reports every session automatically.
-
-# 3b. Cowork: run the watcher (Cowork has no hook surface)
-bun run client/watch-cowork.ts
-
-# 4. Reports
-open http://localhost:4317/        # live dashboard
-bun run cli/report.ts --days 30    # CLI report (--by model, --days N, --json)
+# 3. Reports
+open http://localhost:4317/                     # live dashboard
+bun cli/lut.ts report --days 30
 ```
 
-## Slash commands (plugin)
+You can also install it as a Claude Code plugin
+(`/plugin marketplace add versantus/llm-usage-tracker`) — see
+[INSTALL.md](./INSTALL.md), Option C.
 
-- `/usage-tracker:setup` — configure identity + server
-- `/usage-tracker:report` — show the usage/carbon report
-- `/usage-tracker:dashboard` — start + open the live dashboard
+### Tracked surfaces & extensibility
 
-## Surfaces & extensibility
+Sources are pluggable (`client/sources/`). Local/transcript sources need no
+credentials: **Claude Code**, **Cowork**, **Codex CLI**, **Copilot**,
+**Gemini CLI** (via telemetry), **Ollama desktop**. **Cursor** is pulled
+server-side via its Admin API (`lut cursor-pull`). Details + how to add more:
+[docs/tracking-more-tools.md](./docs/tracking-more-tools.md).
 
-Sources are pluggable. Two kinds:
+### Carbon methodology
 
-- **Transcript/local** (parse on-disk per-session data — no credentials):
-  - ✅ **Claude Code** — full token breakdown (`~/.claude/projects/.../*.jsonl`)
-  - ✅ **Cowork** — same shape (`~/Library/Application Support/Claude/local-agent-mode-sessions/.../audit.jsonl`)
-  - 🔜 **Codex CLI** — `~/.codex/state_5.sqlite` (aggregate tokens only → carbon approximate)
-- **API-pull** (poll a vendor admin API — needs credentials) — *future*:
-  - **Cursor** (Admin API), **ChatGPT** (OpenAI usage API), **Gemini** (OTEL/API)
+Carbon and energy use the Jegham et al. methodology (arXiv 2505.09598),
+vendored from CNaught's [carbonlog](https://github.com/CNaught-Inc/claude-code-plugins).
+Only Anthropic models have validated configs; other providers are flagged
+**approximate**. Water is derived from energy (~1.8 L/kWh, on-site cooling +
+off-site generation) and is region-dependent — tune the factors in
+`shared/carbon-calculator.ts`.
 
-Non-Anthropic carbon needs per-model power/throughput configs added to
-`shared/carbon-calculator.ts`; until then those rows show tokens with carbon
-marked approximate.
-
-## Config & data locations
+### Config & data locations
 
 - Client config: `~/.config/llm-usage-tracker/config.json`
-- Offline spool: `~/.config/llm-usage-tracker/spool.ndjson`
+- Offline spool (server unreachable → events queue + retry): `~/.config/llm-usage-tracker/spool.ndjson`
 - Server DB: `~/.config/llm-usage-tracker/server.db` (override `LUT_DB_PATH`)
+- Env overrides: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`
+- Auth (fail-closed): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + API),
+  `LUT_INGEST_TOKEN` (clients), or `LUT_ALLOW_NO_AUTH=1` for local dev
 
-> Upgrading from an older `claude-usage-tracker` install? The config dir moved —
-> re-run `/usage-tracker:setup` (or `mv ~/.config/claude-usage-tracker ~/.config/llm-usage-tracker`).
-- Env: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`
-- Auth (fail-closed): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + API), `LUT_INGEST_TOKEN`
-  (clients), or `LUT_ALLOW_NO_AUTH=1` to run open locally. See [DEPLOY.md](./DEPLOY.md).
+### Uninstall
 
-Carbon & energy use the Jegham et al. method; **water** is derived from energy
-(on-site cooling + off-site generation, ~1.8 L/kWh) and is approximate &
-region-dependent — tune the factors in `shared/carbon-calculator.ts`.
-
-## Deferred (kept simple for v1)
-
-No auth / multi-tenant (LAN-local, trusts client identity), no history backfill,
-single schema migration. See the plan for the roadmap.
+```bash
+lut unwire            # remove the Claude Code hook
+lut <surface> disable # remove a watcher (codex/cowork/copilot/gemini/ollama)
+rm ~/.local/bin/lut   # remove the binary
+```

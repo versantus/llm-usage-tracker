@@ -27,6 +27,7 @@ if [[ "${1:-}" == "--all" ]]; then
     build_target bun-linux-x64     lut-linux-x64
     build_target bun-linux-arm64   lut-linux-arm64
     build_target bun-windows-x64   lut-windows-x64.exe
+    build_target bun-windows-arm64 lut-windows-arm64.exe
     echo "==> built $(ls "$OUT_DIR" | tr '\n' ' ')"
 else
     bun build --compile --minify --sourcemap=none "$ENTRY" --outfile "$OUT_DIR/lut"

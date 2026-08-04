@@ -90,7 +90,11 @@ function Invoke-Lut {
     $psi.RedirectStandardError = $true
     $psi.CreateNoWindow = $true
     $p = [System.Diagnostics.Process]::Start($psi)
-    $out = $p.StandardOutput.ReadToEnd() + $p.StandardError.ReadToEnd()
+    # Read stderr asynchronously while draining stdout: reading them
+    # sequentially deadlocks when the child fills the stderr pipe buffer
+    # (lut writes nearly everything to stderr).
+    $errTask = $p.StandardError.ReadToEndAsync()
+    $out = $p.StandardOutput.ReadToEnd() + $errTask.Result
     $p.WaitForExit()
     return $out
 }

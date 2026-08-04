@@ -7,6 +7,7 @@
  * Env: LUT_PORT (default 4317), LUT_DB_PATH (default ~/.config/llm-usage-tracker/server.db)
  */
 
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
 
 import {
@@ -41,6 +42,13 @@ const DASH_PASS = process.env.LUT_DASH_PASS || '';
 const INGEST_TOKEN = process.env.LUT_INGEST_TOKEN || '';
 const ALLOW_NO_AUTH = process.env.LUT_ALLOW_NO_AUTH === '1';
 
+/** Constant-time secret comparison (hash first so lengths always match). */
+function safeEqual(a: string, b: string): boolean {
+    const ha = createHash('sha256').update(a).digest();
+    const hb = createHash('sha256').update(b).digest();
+    return timingSafeEqual(ha, hb);
+}
+
 const notConfigured = (what: string, env: string) =>
     new Response(
         `${what} auth is not configured. Set ${env} (or LUT_ALLOW_NO_AUTH=1 for local dev).`,
@@ -68,7 +76,7 @@ function dashGate(req: Request): Response | null {
     const i = decoded.indexOf(':');
     const user = i >= 0 ? decoded.slice(0, i) : '';
     const pass = i >= 0 ? decoded.slice(i + 1) : decoded;
-    const ok = (!DASH_USER || user === DASH_USER) && pass === DASH_PASS;
+    const ok = (!DASH_USER || safeEqual(user, DASH_USER)) && safeEqual(pass, DASH_PASS);
     return ok ? null : unauthorizedDash();
 }
 
@@ -80,7 +88,7 @@ function ingestGate(req: Request): Response | null {
     const token =
         req.headers.get('x-ingest-token') ||
         (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-    return token === INGEST_TOKEN
+    return safeEqual(token, INGEST_TOKEN)
         ? null
         : Response.json({ ok: false, error: 'unauthorized' }, { status: 401 });
 }
@@ -137,7 +145,12 @@ const server = Bun.serve({
             return Response.json(overTime(db, daysParam(url)));
         }
         if (pathname.startsWith('/api/by-user/')) {
-            const userId = decodeURIComponent(pathname.slice('/api/by-user/'.length));
+            let userId: string;
+            try {
+                userId = decodeURIComponent(pathname.slice('/api/by-user/'.length));
+            } catch {
+                return new Response('Bad request', { status: 400 });
+            }
             const days = daysParam(url);
             return Response.json({
                 user: getUser(db, userId),

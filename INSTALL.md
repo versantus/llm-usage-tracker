@@ -15,7 +15,7 @@ server (e.g. `https://your-server.example.com`).
 ## Option A — one-line install (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/your-org/llm-usage-tracker/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.sh | bash
 ```
 
 It installs a tiny self-contained `lut` binary to `~/.local/bin`, asks who you
@@ -32,13 +32,13 @@ Run it non-interactively (CI / dotfiles) by setting the values first:
 ```bash
 LUT_NAME="Your Name" LUT_EMAIL=you@example.com \
 LUT_SERVER_URL=https://your-server.example.com LUT_INGEST_TOKEN=<TOKEN> \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/your-org/llm-usage-tracker/main/install.sh)"
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.sh)"
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/your-org/llm-usage-tracker/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.ps1 | iex
 ```
 
 That's it. Verify with `lut status`.
@@ -71,7 +71,7 @@ login). See [windows-app/](./windows-app/).
 The original path, if you'd rather manage it as a plugin:
 
 ```
-/plugin marketplace add <your-org>/llm-usage-tracker
+/plugin marketplace add versantus/llm-usage-tracker
 /plugin install usage-tracker@llm-usage-tracker
 /usage-tracker:setup
 ```

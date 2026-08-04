@@ -27,17 +27,21 @@ function gui(): string {
     return `gui/${userInfo().uid}`;
 }
 
+function xml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function plistBody(suffix: string, lutPath: string, subcommand: string): string {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>${label(suffix)}</string>
+    <string>${xml(label(suffix))}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${lutPath}</string>
-        <string>${subcommand}</string>
+        <string>${xml(lutPath)}</string>
+        <string>${xml(subcommand)}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

@@ -10,13 +10,15 @@ Start (if needed) and open the live realtime dashboard.
 curl -s http://localhost:4317/api/health
 ```
 
-2. If that fails, start the server in the background:
+2. If that fails, start the server in the background (so it survives this shell):
 
 ```bash
-bun run ${CLAUDE_PLUGIN_ROOT}/server/index.ts &
+nohup bun run "${CLAUDE_PLUGIN_ROOT}/server/index.ts" > /tmp/usage-tracker-server.log 2>&1 &
 ```
 
-3. Tell the user the dashboard is at **http://localhost:4317/** and open it for them:
+(On Windows use `Start-Process bun -ArgumentList 'run',"$env:CLAUDE_PLUGIN_ROOT/server/index.ts" -WindowStyle Hidden` instead.)
+
+3. Tell the user the dashboard is at **http://localhost:4317/** and open it for them with the platform's opener — `open` (macOS), `xdg-open` (Linux), or `start` (Windows):
 
 ```bash
 open http://localhost:4317/

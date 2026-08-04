@@ -27,7 +27,9 @@ function num(v: unknown): number {
 
 /**
  * Parse JSONL lines and extract one TokenUsageRecord per assistant request,
- * de-duplicated by uuid (streaming can emit a request multiple times).
+ * de-duplicated by message.id: one API response is written as SEVERAL
+ * assistant lines (one per content block), each with a unique uuid but the
+ * same message.id and the same full usage — deduping by uuid double-counts.
  */
 export function parseTranscriptLines(lines: string[]): TokenUsageRecord[] {
     const records: TokenUsageRecord[] = [];
@@ -44,6 +46,8 @@ export function parseTranscriptLines(lines: string[]): TokenUsageRecord[] {
             if (!usage || typeof usage !== 'object') continue;
 
             const requestId =
+                (typeof message.id === 'string' && message.id) ||
+                (typeof entry.requestId === 'string' && entry.requestId) ||
                 (typeof entry.uuid === 'string' && entry.uuid) ||
                 (typeof entry.parentMessageId === 'string' && entry.parentMessageId) ||
                 `req-${counter++}`;

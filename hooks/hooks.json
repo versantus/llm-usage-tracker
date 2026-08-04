@@ -5,7 +5,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "npx -y bun ${CLAUDE_PLUGIN_ROOT}/client/hooks/stop.ts",
+                        "command": "npx -y bun \"${CLAUDE_PLUGIN_ROOT}/client/hooks/stop.ts\"",
                         "async": true,
                         "timeout": 15
                     }

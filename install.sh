@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # LLM Usage Tracker — one-line installer (macOS / Linux).
 #
-#   curl -fsSL https://raw.githubusercontent.com/your-org/llm-usage-tracker/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.sh | bash
 #
 # Or, from a clone:   ./install.sh
 #
@@ -13,7 +13,7 @@
 #   LUT_NAME, LUT_EMAIL, LUT_SERVER_URL, LUT_INGEST_TOKEN
 #
 # Overrides:
-#   LUT_REPO        owner/repo to fetch from   (default: auto-detected / your-org/llm-usage-tracker)
+#   LUT_REPO        owner/repo to fetch from   (default: auto-detected / versantus/llm-usage-tracker)
 #   LUT_BIN_DIR     install dir                 (default: ~/.local/bin)
 #   LUT_NO_CONNECT  set to 1 to skip `lut connect`
 set -euo pipefail
@@ -21,7 +21,13 @@ set -euo pipefail
 REPO_DEFAULT="versantus/llm-usage-tracker"
 BIN_DIR="${LUT_BIN_DIR:-$HOME/.local/bin}"
 DEST="$BIN_DIR/lut"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
+# Only trust BASH_SOURCE when it's a real file: when piped (`curl | bash`) it's
+# unset and falling back to $0 ("bash") would wrongly treat the CURRENT
+# DIRECTORY as a checkout of this repo.
+SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 
 say() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m warn:\033[0m %s\n' "$*" >&2; }
@@ -133,8 +139,22 @@ ARGS=()
 [[ -n "${LUT_SERVER_URL:-}" ]]   && ARGS+=(--server-url "$LUT_SERVER_URL")
 [[ -n "${LUT_INGEST_TOKEN:-}" ]] && ARGS+=(--ingest-token "$LUT_INGEST_TOKEN")
 
+# ${ARGS[@]+...}: bash 3.2 (stock macOS) treats an empty array as unbound
+# under `set -u`, so a plain "${ARGS[@]}" would abort the installer here.
 say "connecting Claude Code…"
-"$DEST" connect "${ARGS[@]}"
+if [[ -n "${LUT_NAME:-}" && -n "${LUT_EMAIL:-}" ]]; then
+    # Fully specified via env (CI / dotfiles): no prompts needed.
+    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"}
+elif [[ -t 0 ]]; then
+    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"}
+elif (exec </dev/tty) 2>/dev/null; then
+    # Piped one-liner: stdin is the script itself, so reattach prompts to the
+    # terminal — otherwise `lut connect` can never ask for name/email.
+    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"} </dev/tty
+else
+    warn "no interactive terminal — finish setup by running: lut connect"
+    exit 0
+fi
 
 echo
 say "All set. Run '$([[ "$DEST" == "$BIN_DIR/lut" ]] && echo lut || echo "$DEST") status' to verify."

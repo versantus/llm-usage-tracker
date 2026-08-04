@@ -1,6 +1,6 @@
 # LLM Usage Tracker - one-line installer (Windows, PowerShell).
 #
-#   irm https://raw.githubusercontent.com/your-org/llm-usage-tracker/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/versantus/llm-usage-tracker/main/install.ps1 | iex
 #
 # Installs the self-contained `lut.exe` to %LOCALAPPDATA%\Programs\llm-usage-tracker,
 # then runs `lut connect` to write config and wire the Claude Code Stop hook.
@@ -34,20 +34,27 @@ elseif ($ScriptDir -and (Test-Path (Join-Path $ScriptDir 'cli\lut.ts')) -and (Ge
     Pop-Location
 }
 else {
-    $url = "https://github.com/$Repo/releases/latest/download/lut-windows-x64.exe"
-    Say "downloading lut.exe from $Repo releases..."
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $url = "https://github.com/$Repo/releases/latest/download/lut-windows-$arch.exe"
+    Say "downloading lut.exe ($arch) from $Repo releases..."
     Invoke-WebRequest -Uri $url -OutFile $Dest -UseBasicParsing
 }
 
 Say "installed $Dest"
 
-# Add to PATH (user scope) if missing.
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($userPath -notlike "*$BinDir*") {
-    [Environment]::SetEnvironmentVariable('Path', "$userPath;$BinDir", 'User')
+# Add to PATH (user scope) if missing. Go via the registry with
+# DoNotExpandEnvironmentNames so %VAR%-style entries survive (the .NET
+# Environment API expands them, which would permanently flatten the user PATH).
+$regKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+$userPath = [string]$regKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+$parts = $userPath -split ';' | Where-Object { $_ }
+if ($parts -notcontains $BinDir) {
+    $newPath = if ($userPath) { "$userPath;$BinDir" } else { $BinDir }
+    $regKey.SetValue('Path', $newPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
     $env:Path = "$env:Path;$BinDir"
     Warn "Added $BinDir to your PATH (restart terminals to pick it up)."
 }
+$regKey.Close()
 
 if ($env:LUT_NO_CONNECT -eq '1') {
     Say "skipping connect (LUT_NO_CONNECT=1). Run: `"$Dest`" connect"
@@ -66,17 +73,16 @@ Say "connecting Claude Code..."
 # Offer the tray GUI (built into lut.exe: `lut gui`) + run-at-login.
 $ans = Read-Host "Run the tray GUI now and at login? (Y/n)"
 if ($ans -eq '' -or $ans -match '^[Yy]') {
-    # Hidden launcher so the console doesn't flash at login.
-    $vbs = Join-Path $BinDir 'lut-gui.vbs'
-    "CreateObject(""WScript.Shell"").Run """"""$Dest"""" gui"", 0, False" | Set-Content -Path $vbs -Encoding ASCII
-    $startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\AI Carbon Tracker.lnk'
-    $ws = New-Object -ComObject WScript.Shell
-    $sc = $ws.CreateShortcut($startup)
-    $sc.TargetPath = (Join-Path $env:WINDIR 'System32\wscript.exe')
-    $sc.Arguments = """$vbs"""
-    $sc.Save()
-    & $Dest gui
-    Say "Tray GUI running (system-tray icon) and set to start at login."
+    # Hidden launcher so the console doesn't flash at login. Same file name +
+    # location as the one lut.exe writes on first run, so we never end up with
+    # two competing login launchers. Unicode encoding: ASCII would corrupt
+    # non-ASCII install paths (e.g. C:\Users\José).
+    $vbsBody = "CreateObject(""WScript.Shell"").Run """"""$Dest"""" gui"", 0, False"
+    $startupVbs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\AI Carbon Tracker.vbs'
+    $vbsBody | Set-Content -Path $startupVbs -Encoding Unicode
+    # Launch detached — `& $Dest gui` would block this installer forever.
+    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList """$startupVbs"""
+    Say "Tray GUI starting (system-tray icon) and set to start at login."
 }
 
 Write-Host ""

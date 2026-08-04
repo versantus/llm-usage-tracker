@@ -7,6 +7,16 @@ import { z } from 'zod';
 
 import type { IngestEvent } from '../shared/types.ts';
 
+// Normalise to ISO-8601 UTC: range filters and time buckets compare these
+// LEXICOGRAPHICALLY, so a "2026-08-04 10:00:00" or "+02:00" form would sort
+// into the wrong buckets if stored as-is.
+const isoTimestamp = z
+    .string()
+    .refine((s) => Number.isFinite(Date.parse(s)), { message: 'invalid timestamp' })
+    .transform((s) => new Date(s).toISOString());
+
+const count = z.number().nonnegative().default(0);
+
 export const IngestEventSchema = z.object({
     userId: z.string().min(1),
     userName: z.string().min(1),
@@ -30,17 +40,17 @@ export const IngestEventSchema = z.object({
     sessionId: z.string().min(1),
     cwd: z.string().default(''),
     primaryModel: z.string().default('unknown'),
-    modelsUsed: z.record(z.string(), z.number()).default({}),
-    inputTokens: z.number().default(0),
-    outputTokens: z.number().default(0),
-    cacheCreationTokens: z.number().default(0),
-    cacheReadTokens: z.number().default(0),
-    totalTokens: z.number().default(0),
-    energyWh: z.number().default(0),
-    co2Grams: z.number().default(0),
+    modelsUsed: z.record(z.string(), z.number().nonnegative()).default({}),
+    inputTokens: count,
+    outputTokens: count,
+    cacheCreationTokens: count,
+    cacheReadTokens: count,
+    totalTokens: count,
+    energyWh: count,
+    co2Grams: count,
     carbonApprox: z.boolean().default(false),
-    startedAt: z.string(),
-    updatedAt: z.string()
+    startedAt: isoTimestamp,
+    updatedAt: isoTimestamp
 });
 
 export type ValidatedIngest = z.infer<typeof IngestEventSchema>;

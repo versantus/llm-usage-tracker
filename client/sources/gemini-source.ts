@@ -30,11 +30,15 @@ function defaultOutfile(): string {
     return join(configDir(), 'gemini-telemetry.log');
 }
 
-function readGeminiSettings(): any {
+/** Parsed settings, {} when the file doesn't exist, or null when it exists but
+ *  can't be read/parsed — callers must NOT write settings back in that case,
+ *  or they'd clobber the user's whole Gemini config. */
+function readGeminiSettings(): any | null {
+    if (!existsSync(geminiSettingsPath())) return {};
     try {
         return JSON.parse(readFileSync(geminiSettingsPath(), 'utf-8'));
     } catch {
-        return {};
+        return null;
     }
 }
 
@@ -59,6 +63,9 @@ export function geminiTelemetryConfigured(): boolean {
 export function enableGeminiTelemetry(): string {
     const p = geminiSettingsPath();
     const settings = readGeminiSettings();
+    if (settings === null) {
+        return `could not parse ${p} — left unchanged (fix it, then re-run \`lut gemini enable\`)`;
+    }
     if (settings.telemetry?.enabled && settings.telemetry?.outfile) {
         return `already on (outfile ${settings.telemetry.outfile})`;
     }
@@ -243,7 +250,10 @@ export const geminiSource: Source = {
             modelBreakdown: { [agg.model]: totalTokens },
             primaryModel: agg.model
         };
-        const now = new Date().toISOString();
+        // Anchor to the telemetry file's mtime, not scan time — a backfill scan
+        // shouldn't report week-old sessions as active right now.
+        const mtimeMs = geminiTelemetryMtime();
+        const now = (mtimeMs ? new Date(mtimeMs) : new Date()).toISOString();
         const surface = agg.app.includes('antigravity') ? 'antigravity-cli' : 'gemini-cli';
         return {
             provider: 'google',

@@ -26,10 +26,13 @@ function claudeProjectsDir(): string {
 }
 
 function readLines(file: string): string[] {
-    if (!existsSync(file)) return [];
-    return readFileSync(file, 'utf-8')
-        .split('\n')
-        .filter((l) => l.trim());
+    let text: string;
+    try {
+        text = readFileSync(file, 'utf-8');
+    } catch {
+        return []; // missing or unreadable
+    }
+    return text.split('\n').filter((l) => l.trim());
 }
 
 /** Find <session-id>.jsonl, optionally hinted by cwd's encoded dir. */
@@ -37,7 +40,9 @@ function findTranscriptPath(sessionId: string, cwd?: string): string | null {
     const projectsDir = claudeProjectsDir();
 
     if (cwd) {
-        const encoded = cwd.replace(/\//g, '-');
+        // Claude Code encodes cwd by replacing separators AND ':' '.' '_' with
+        // '-' (covers Windows drive paths like C:\Users\... and dotted dirs).
+        const encoded = cwd.replace(/[\\/:._]/g, '-');
         const direct = join(projectsDir, encoded, `${sessionId}.jsonl`);
         if (existsSync(direct)) return direct;
     }
@@ -105,7 +110,12 @@ export const claudeCodeSource: Source = {
         ];
         const usage = aggregate(records);
 
-        const stat = statSync(path);
+        let stat: ReturnType<typeof statSync>;
+        try {
+            stat = statSync(path);
+        } catch {
+            return null; // transcript removed mid-read — skip
+        }
         const startedAt = getFirstTimestamp(lines) ?? stat.birthtime.toISOString();
         const updatedAt = getLastTimestamp(lines) ?? stat.mtime.toISOString();
 

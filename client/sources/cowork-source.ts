@@ -88,10 +88,13 @@ export function listCoworkAuditFiles(root = coworkSessionsRoot()): CoworkAuditFi
 }
 
 function readLines(file: string): string[] {
-    if (!existsSync(file)) return [];
-    return readFileSync(file, 'utf-8')
-        .split('\n')
-        .filter((l) => l.trim());
+    let text: string;
+    try {
+        text = readFileSync(file, 'utf-8');
+    } catch {
+        return []; // deleted/rotated between listing and reading
+    }
+    return text.split('\n').filter((l) => l.trim());
 }
 
 /** Best-effort: pull a cwd from a sibling metadata JSON if one exists. */
@@ -118,9 +121,15 @@ export const coworkSource: Source = {
         if (!auditPath || !existsSync(auditPath)) return null;
 
         const lines = readLines(auditPath);
+        if (!lines.length) return null;
         const usage = aggregate(parseTranscriptLines(lines));
 
-        const stat = statSync(auditPath);
+        let stat: ReturnType<typeof statSync>;
+        try {
+            stat = statSync(auditPath);
+        } catch {
+            return null; // session dir removed mid-scan — skip, don't crash the watcher
+        }
         const startedAt = getFirstTimestamp(lines) ?? stat.birthtime.toISOString();
         const updatedAt = getLastTimestamp(lines) ?? stat.mtime.toISOString();
 

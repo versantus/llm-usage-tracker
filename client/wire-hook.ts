@@ -11,7 +11,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 export function settingsPath(): string {
     return join(homedir(), '.claude', 'settings.json');
@@ -19,8 +19,8 @@ export function settingsPath(): string {
 
 /** True when running as a compiled standalone binary (not under bun/node). */
 function isCompiledBinary(): boolean {
-    const exec = process.execPath.toLowerCase();
-    return !exec.endsWith('bun') && !exec.includes('node');
+    const base = basename(process.execPath).toLowerCase();
+    return !/^bun(\.exe)?$/.test(base) && !base.startsWith('node');
 }
 
 /** The command Claude Code should run for the Stop hook, for this install. */
@@ -46,7 +46,11 @@ function commandsOf(entry: any): string[] {
 /** Recognise a command we own: the `lut … hook` binary or the legacy script.
  *  Matches macOS ("…/lut" hook) and Windows ("…\lut.exe" hook) forms. */
 function isOurCommand(c: string): boolean {
-    return c.includes('hooks/stop.ts') || /(^|[/\\"\s])lut(\.exe)?"?\s+hook\b/i.test(c);
+    return (
+        c.includes('hooks/stop.ts') ||
+        c.includes('hooks\\stop.ts') || // Windows path separator
+        /(^|[/\\"\s])lut(\.exe)?"?\s+hook\b/i.test(c)
+    );
 }
 
 /** Recognise a Stop-hook entry we own (binary or legacy script form). */

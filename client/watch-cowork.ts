@@ -59,13 +59,18 @@ async function scanOnce(): Promise<void> {
     }
 }
 
+// Don't exit when the dir is missing: the LaunchAgent runs with KeepAlive, so
+// exiting just makes launchd respawn us in a loop. Keep polling — Cowork gets
+// picked up as soon as it appears.
 if (!coworkAvailable()) {
-    logLine(`Cowork sessions dir not found at ${coworkSessionsRoot()} — nothing to watch.`);
-    process.exit(0);
+    logLine(`Cowork sessions dir not found at ${coworkSessionsRoot()} — waiting for it to appear.`);
 }
 
-await scanOnce();
+const safeScan = (): Promise<void> =>
+    scanOnce().catch((err) => logLine(`scan failed: ${err?.message ?? err}`));
+
+await safeScan();
 if (!once) {
     logLine(`watching ${coworkSessionsRoot()} every ${intervalSec}s`);
-    setInterval(scanOnce, intervalSec * 1000);
+    setInterval(safeScan, intervalSec * 1000);
 }

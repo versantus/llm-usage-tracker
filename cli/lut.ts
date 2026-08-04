@@ -70,7 +70,7 @@ import {
     wireClaudeCodeHook
 } from '../client/wire-hook.ts';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 /**
  * Positional args, normalised across platforms. `bun --compile` lays out
@@ -86,7 +86,8 @@ const ARGS: string[] = (() => {
         first === process.execPath ||
         first.includes('$bunfs') ||
         first.includes('~BUN') ||
-        first.includes('/B/~BUN')
+        first.includes('/B/~BUN') ||
+        first.endsWith('lut.ts') // dev: `bun cli/lut.ts <cmd>` puts the script at argv[1]
     ) {
         a.shift();
     }
@@ -188,12 +189,18 @@ async function cmdConnect(): Promise<void> {
     const existing = loadConfig();
     let name = flag('name') ?? existing?.user.name ?? '';
     let email = flag('email') ?? existing?.user.email ?? '';
-    const serverUrl = flag('server-url') ?? existing?.serverUrl ?? defaultServerUrl();
-    const ingestToken = flag('ingest-token') ?? process.env.LUT_INGEST_TOKEN ?? existing?.ingestToken;
+    let serverUrl = flag('server-url') ?? process.env.LUT_SERVER_URL ?? existing?.serverUrl ?? '';
+    let ingestToken = flag('ingest-token') ?? process.env.LUT_INGEST_TOKEN ?? existing?.ingestToken;
     let deviceName = flag('device-name') ?? process.env.LUT_DEVICE_NAME ?? existing?.deviceName ?? '';
 
     if (!name) name = await ask('Your name');
     if (!email) email = await ask('Your work email');
+    // Prompt for the team server + token too — silently defaulting to
+    // localhost would leave a one-click install reporting to nowhere.
+    if (!serverUrl) serverUrl = await ask('Server URL (from your admin)', defaultServerUrl());
+    if (ingestToken === undefined) {
+        ingestToken = (await ask('Ingest token (from your admin; blank if none)')) || undefined;
+    }
     if (!deviceName) deviceName = await ask('Device / OS label', detectDeviceName());
     if (!name || !email) {
         console.error('Name and email are required (pass --name and --email, or run interactively).');

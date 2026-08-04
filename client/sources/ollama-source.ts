@@ -53,7 +53,12 @@ function openDb(): Database | null {
 
 function tsMs(raw: unknown): number {
     if (typeof raw !== 'string' || !raw) return 0;
-    const ms = Date.parse(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
+    // SQLite timestamps are UTC with no offset; normalise to ISO and append 'Z'
+    // whenever no timezone is present (both space- and T-separated forms —
+    // treating one as UTC and the other as local skews times by the UTC offset).
+    const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const withTz = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : iso + 'Z';
+    const ms = Date.parse(withTz);
     return Number.isFinite(ms) ? ms : 0;
 }
 

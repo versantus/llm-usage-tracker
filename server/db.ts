@@ -79,8 +79,14 @@ function migrate(db: Database): void {
     }
 
     // v2: per-session device label (added to existing v1 databases).
+    // Tolerate a re-run: a crash between this ALTER and the user_version bump
+    // below would otherwise make every subsequent boot throw "duplicate column".
     if (current < 2) {
-        db.exec(`ALTER TABLE sessions ADD COLUMN device_name TEXT NOT NULL DEFAULT '';`);
+        try {
+            db.exec(`ALTER TABLE sessions ADD COLUMN device_name TEXT NOT NULL DEFAULT '';`);
+        } catch (err: any) {
+            if (!String(err?.message ?? err).includes('duplicate column')) throw err;
+        }
     }
 
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
@@ -130,7 +136,8 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
             energy_wh = excluded.energy_wh,
             co2_grams = excluded.co2_grams,
             carbon_approx = excluded.carbon_approx,
-            updated_at = excluded.updated_at`
+            updated_at = excluded.updated_at
+         WHERE excluded.updated_at >= sessions.updated_at`
     ).run({
         $user_id: e.userId,
         $session_id: e.sessionId,
@@ -197,7 +204,6 @@ function aggregateModels(rows: ModelRow[]) {
         }
 
         const totalTokens = Object.values(modelsUsed).reduce((a, b) => a + b, 0) || 1;
-        const sessionCount = Object.keys(modelsUsed).length || 1;
 
         for (const [model, tokens] of Object.entries(modelsUsed)) {
             if (!byModel[model]) {
@@ -209,9 +215,11 @@ function aggregateModels(rows: ModelRow[]) {
                     carbon_approx: 0
                 };
             }
-            // Proportional allocation of energy/co2 to each model based on token share
+            // Proportional allocation of energy/co2 to each model based on token share.
+            // `sessions` counts sessions the model APPEARED in (fractional shares
+            // rounded a 1-in-3-sessions model down to a misleading 0).
             const share = (tokens as number) / totalTokens;
-            byModel[model].sessions += 1 / sessionCount;
+            byModel[model].sessions += 1;
             byModel[model].tokens += tokens as number;
             byModel[model].energy_wh += row.energy_wh * share;
             byModel[model].co2_grams += row.co2_grams * share;
@@ -222,7 +230,7 @@ function aggregateModels(rows: ModelRow[]) {
     return Object.entries(byModel)
         .map(([model, data]) => ({
             model,
-            sessions: Math.round(data.sessions),
+            sessions: data.sessions,
             tokens: data.tokens,
             energy_wh: data.energy_wh,
             co2_grams: data.co2_grams,
@@ -324,7 +332,7 @@ export function sessionsForUser(db: Database, userId: string, days?: number, lim
             `SELECT session_id, provider, surface, device_name, primary_model, cwd,
                     total_tokens, energy_wh, co2_grams, started_at, updated_at
              FROM sessions WHERE user_id = $id${andSince(days)}
-             ORDER BY started_at DESC LIMIT $limit`
+             ORDER BY updated_at DESC LIMIT $limit`
         )
         .all({ $id: userId, $limit: limit });
 }

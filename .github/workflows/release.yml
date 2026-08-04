@@ -32,4 +32,5 @@ jobs:
             dist/lut-linux-x64
             dist/lut-linux-arm64
             dist/lut-windows-x64.exe
+            dist/lut-windows-arm64.exe
           fail_on_unmatched_files: true

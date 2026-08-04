@@ -2,10 +2,9 @@ FROM oven/bun:1.3.6-slim
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json ./
-COPY bun.lockb* ./
-RUN bun install
+# Copy package files (the lockfile is the text-format bun.lock)
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 # Copy source
 COPY shared ./shared
