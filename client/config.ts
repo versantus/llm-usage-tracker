@@ -19,6 +19,10 @@ export interface ClientConfig {
     /** Human-friendly device / OS label (e.g. "macOS"). Defaults to the detected OS. */
     deviceName?: string;
     surfaces: { claudeCode: boolean; cowork: boolean };
+    /** Work-type categorisation. false -> every session reports 'unknown'. Default true. */
+    categories?: boolean;
+    /** Allow the optional LLM stage (metadata vector only) for ambiguous sessions. Default true. */
+    llmClassify?: boolean;
 }
 
 /** Friendly OS label used as the default device name. */
@@ -81,6 +85,7 @@ export function loadConfig(): ClientConfig | null {
             cfg.user.email = process.env.LUT_USER_EMAIL;
             cfg.userId = userIdFromEmail(process.env.LUT_USER_EMAIL);
         }
+        if (process.env.LUT_NO_CATEGORY === '1') cfg.categories = false;
         return cfg;
     } catch {
         return null;
@@ -104,6 +109,8 @@ export function buildConfig(opts: {
     deviceName?: string;
     claudeCode?: boolean;
     cowork?: boolean;
+    categories?: boolean;
+    llmClassify?: boolean;
 }): ClientConfig {
     return {
         user: { name: opts.name, email: opts.email },
@@ -115,6 +122,8 @@ export function buildConfig(opts: {
         surfaces: {
             claudeCode: opts.claudeCode ?? true,
             cowork: opts.cowork ?? true
-        }
+        },
+        categories: opts.categories ?? true,
+        llmClassify: opts.llmClassify ?? true
     };
 }

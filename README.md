@@ -56,7 +56,36 @@ Or in the terminal:
 
 ```bash
 lut report --days 30
+lut report --days 30 --by category   # what KINDS of work AI is doing
 ```
+
+## Work-type categories (and how they stay private)
+
+Each session is labelled with the kind of work it was: **coding · debugging ·
+docs-writing · research · planning · other** — so the team can see whether AI
+is being used for the right tasks.
+
+How it works without leaking anything:
+
+1. On your machine, the tracker reduces each session to a **numeric feature
+   vector** — counts of tool types used, file *extensions* edited, kinds of
+   commands run, plan-mode markers, lines-changed totals. No prompt text, code,
+   file names, or commands are in it.
+2. A deterministic scorer picks the category. Only if the call is too close
+   does it (optionally) ask Claude — showing it **only that numeric vector**,
+   never session content — via your own `claude` CLI, locally. No `claude`
+   installed → this step is silently skipped.
+3. The **only** categorisation data sent to the team server is three fields:
+   the category label, a confidence number, and which stage produced it.
+
+Opting out: `lut connect --no-category` (or `"categories": false` in your
+config) — your sessions then report `unknown`, including past ones on the next
+re-scan. To keep categories but never invoke the LLM step:
+`--no-llm-classify`.
+
+Backfilling old sessions: `lut scan-claude-code --all` (and
+`lut scan-cowork --all`) re-reports history with categories added — safe to
+run any time, nothing is double-counted.
 
 ---
 

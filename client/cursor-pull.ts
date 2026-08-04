@@ -106,6 +106,9 @@ export async function cursorPull(cfg: ClientConfig): Promise<void> {
                 energyWh: carbon.energy.energyWh,
                 co2Grams: carbon.co2Grams,
                 carbonApprox: isCarbonApproximate(model),
+                category: 'unknown', // Cursor is server-side usage data — no local signals to classify
+                categoryConfidence: 0,
+                categorySource: 'none',
                 startedAt: ts,
                 updatedAt: ts
             };

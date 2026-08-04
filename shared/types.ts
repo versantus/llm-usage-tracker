@@ -21,6 +21,30 @@ export type Surface =
     | 'cursor'
     | 'unknown';
 
+/** Work-type category for a session (privacy-safe closed enum — the ONLY
+ *  categorisation data that ever leaves the machine, with confidence+source). */
+export type WorkCategory =
+    | 'coding'
+    | 'debugging'
+    | 'docs-writing'
+    | 'research'
+    | 'planning'
+    | 'other'
+    | 'unknown';
+
+/** How a category was produced. 'none' = not classified / opted out. */
+export type CategorySource = 'heuristic' | 'llm' | 'none';
+
+/** Client-side classification result. `ambiguous` and `scores` are local-only
+ *  (used to decide LLM escalation) and are never sent to the server. */
+export interface CategoryResult {
+    category: WorkCategory;
+    confidence: number; // 0..1
+    source: CategorySource;
+    ambiguous: boolean;
+    scores?: Record<string, number>;
+}
+
 /**
  * A single API request's token usage, parsed from a transcript line.
  */
@@ -59,6 +83,8 @@ export interface CollectedSession {
     sessionId: string;
     cwd: string;
     usage: SessionUsage;
+    /** Work-type classification (transcript sources only; undefined -> 'unknown'). */
+    category?: CategoryResult;
     startedAt: string; // ISO 8601
     updatedAt: string; // ISO 8601
 }
@@ -91,6 +117,11 @@ export interface IngestEvent {
     co2Grams: number;
     /** True when carbon is a rough estimate (e.g. provider with aggregate-only tokens). */
     carbonApprox: boolean;
+    /** Work-type category. Privacy: this closed enum (+ the two fields below)
+     *  is ALL the categorisation data that leaves the machine. */
+    category: WorkCategory;
+    categoryConfidence: number;
+    categorySource: CategorySource;
     startedAt: string;
     updatedAt: string;
 }

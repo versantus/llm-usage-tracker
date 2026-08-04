@@ -70,11 +70,19 @@ export function enableAgent(suffix: string, lutPath: string, subcommand: string)
     } catch {
         // not loaded — fine
     }
-    try {
-        execFileSync('launchctl', ['bootstrap', gui(), p], { stdio: 'ignore' });
-        return `enabled (LaunchAgent ${label(suffix)})`;
-    } catch (err: any) {
-        return `wrote ${p} but launchctl bootstrap failed: ${err?.message ?? err}`;
+    // One retry: bootstrap can race with the just-booted-out old instance
+    // still winding down (seen as an immediate failure that succeeds ~1s later).
+    for (let attempt = 0; ; attempt++) {
+        try {
+            execFileSync('launchctl', ['bootstrap', gui(), p], { stdio: 'ignore' });
+            return `enabled (LaunchAgent ${label(suffix)})`;
+        } catch (err: any) {
+            if (attempt === 0) {
+                Bun.sleepSync(1000);
+                continue;
+            }
+            return `wrote ${p} but launchctl bootstrap failed: ${err?.message ?? err}`;
+        }
     }
 }
 

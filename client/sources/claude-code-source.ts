@@ -11,6 +11,11 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import {
+    classifyHeuristic,
+    extractSessionFeatures,
+    mergeFeatures
+} from '../../shared/categorizer.ts';
+import {
     aggregate,
     extractParentSessionIdFromLines,
     getFirstTimestamp,
@@ -73,16 +78,54 @@ function resolve(sessionId: string, cwd?: string): { sessionId: string; path: st
     return parentPath ? { sessionId: parentId, path: parentPath } : null;
 }
 
-function subagentRecords(transcriptPath: string, sessionId: string): TokenUsageRecord[] {
+function subagentLineSets(transcriptPath: string): string[][] {
     const subDir = join(transcriptPath.replace(/\.jsonl$/, ''), 'subagents');
     if (!existsSync(subDir)) return [];
     try {
         return readdirSync(subDir)
             .filter((f) => f.startsWith('agent-') && f.endsWith('.jsonl'))
-            .flatMap((f) => parseTranscriptLines(readLines(join(subDir, f))));
+            .map((f) => readLines(join(subDir, f)));
     } catch {
         return [];
     }
+}
+
+/** All top-level session transcripts, optionally only those touched in the
+ *  last `sinceHours` (0 = all). Used by `lut scan-claude-code` backfill. */
+export function listClaudeCodeTranscripts(
+    sinceHours = 0
+): { sessionId: string; path: string; mtimeMs: number }[] {
+    const projectsDir = claudeProjectsDir();
+    if (!existsSync(projectsDir)) return [];
+    const cutoff = sinceHours > 0 ? Date.now() - sinceHours * 3600_000 : 0;
+    const out: { sessionId: string; path: string; mtimeMs: number }[] = [];
+    try {
+        for (const dir of readdirSync(projectsDir)) {
+            const full = join(projectsDir, dir);
+            let files: string[];
+            try {
+                files = readdirSync(full);
+            } catch {
+                continue;
+            }
+            for (const f of files) {
+                if (!f.endsWith('.jsonl')) continue;
+                const p = join(full, f);
+                let st: ReturnType<typeof statSync>;
+                try {
+                    st = statSync(p);
+                } catch {
+                    continue;
+                }
+                if (!st.isFile()) continue;
+                if (cutoff && st.mtimeMs < cutoff) continue;
+                out.push({ sessionId: basename(f, '.jsonl'), path: p, mtimeMs: st.mtimeMs });
+            }
+        }
+    } catch {
+        // projects dir unreadable — nothing to scan
+    }
+    return out;
 }
 
 export const claudeCodeSource: Source = {
@@ -104,11 +147,16 @@ export const claudeCodeSource: Source = {
         }
 
         const lines = readLines(path);
+        const subagents = subagentLineSets(path);
         const records = [
             ...parseTranscriptLines(lines),
-            ...subagentRecords(path, basename(path, '.jsonl'))
+            ...subagents.flatMap((ls) => parseTranscriptLines(ls))
         ];
         const usage = aggregate(records);
+
+        let features = extractSessionFeatures(lines);
+        for (const ls of subagents) features = mergeFeatures(features, extractSessionFeatures(ls));
+        const category = classifyHeuristic(features);
 
         let stat: ReturnType<typeof statSync>;
         try {
@@ -125,6 +173,7 @@ export const claudeCodeSource: Source = {
             sessionId: resolvedId,
             cwd: cwd ?? '',
             usage,
+            category,
             startedAt,
             updatedAt
         } satisfies CollectedSession;

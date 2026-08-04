@@ -12,12 +12,14 @@ import { join } from 'node:path';
 
 import {
     appDeviceForUser,
+    categoriesForUser,
     getUser,
     modelsForUser,
     openDb,
     overTime,
     overTimeForUser,
     sessionsForUser,
+    summaryByCategory,
     summaryByModel,
     summaryByProvider,
     summaryByUser,
@@ -141,6 +143,9 @@ const server = Bun.serve({
         if (pathname === '/api/by-model') {
             return Response.json(summaryByModel(db, daysParam(url)));
         }
+        if (pathname === '/api/by-category') {
+            return Response.json(summaryByCategory(db, daysParam(url)));
+        }
         if (pathname === '/api/over-time') {
             return Response.json(overTime(db, daysParam(url)));
         }
@@ -156,6 +161,7 @@ const server = Bun.serve({
                 user: getUser(db, userId),
                 models: modelsForUser(db, userId, days),
                 appDevice: appDeviceForUser(db, userId, days),
+                categories: categoriesForUser(db, userId, days),
                 overTime: overTimeForUser(db, userId, days),
                 sessions: sessionsForUser(db, userId, days)
             });

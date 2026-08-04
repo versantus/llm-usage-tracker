@@ -77,9 +77,10 @@ function qs(path) {
 
 async function refresh() {
     try {
-        const [summary, byModel, time] = await Promise.all([
+        const [summary, byModel, byCategory, time] = await Promise.all([
             fetch(qs('/api/summary')).then((r) => r.json()),
             fetch(qs('/api/by-model')).then((r) => r.json()),
+            fetch(qs('/api/by-category')).then((r) => r.json()),
             fetch(qs('/api/over-time')).then((r) => r.json())
         ]);
         renderCards(summary.totals);
@@ -87,6 +88,7 @@ async function refresh() {
         renderProviders(summary.byProvider);
         renderUsers(summary.byUser);
         renderModelChart(byModel);
+        renderCategoryChart(byCategory);
         renderTimeChart(time, summary.byUser);
     } catch (err) {
         // Transient fetch failure (server restart etc.) — keep the last render.
@@ -210,6 +212,49 @@ function renderModelChart(rows, host = document.getElementById('chart-model')) {
     host.replaceChildren(svg);
 }
 
+// --- Horizontal bar chart: tokens by work type ---
+// Colours keyed by category (not index) so they stay stable across ranges.
+const CATEGORY_COLORS = {
+    coding: PALETTE[0],
+    debugging: PALETTE[5],
+    'docs-writing': PALETTE[3],
+    research: PALETTE[1],
+    planning: PALETTE[4],
+    other: '#8b97a6',
+    unknown: '#4a5561'
+};
+
+function renderCategoryChart(rows, host = document.getElementById('chart-category')) {
+    if (!rows || !rows.length) {
+        host.innerHTML = `<div class="empty">No data</div>`;
+        return;
+    }
+    const w = host.clientWidth || 380;
+    const rowH = 30;
+    const h = rows.length * rowH + 10;
+    const max = Math.max(...rows.map((r) => r.tokens), 1);
+    const labelW = 110;
+    const barW = w - labelW - 70;
+
+    const svg = el('svg', { viewBox: `0 0 ${w} ${h}`, height: h });
+    rows.forEach((r, i) => {
+        const y = i * rowH + 6;
+        const len = Math.max((r.tokens / max) * barW, 2);
+        svg.appendChild(el('text', { x: 0, y: y + 14, fill: '#8b97a6', 'font-size': 12 }, r.category));
+        const rect = el('rect', {
+            x: labelW, y, width: len, height: 18, rx: 4,
+            fill: CATEGORY_COLORS[r.category] || CATEGORY_COLORS.other
+        });
+        rect.appendChild(el('title', {}, `${r.category}: ${fmtInt(r.sessions)} sessions · ${fmtTokens(r.tokens)} tok`));
+        svg.appendChild(rect);
+        svg.appendChild(
+            el('text', { x: labelW + len + 8, y: y + 14, fill: '#e6edf3', 'font-size': 12 },
+                fmtTokens(r.tokens))
+        );
+    });
+    host.replaceChildren(svg);
+}
+
 // --- Stacked area-ish bars: CO2 per day, stacked by user ---
 function renderTimeChart(rows, users) {
     const host = document.getElementById('chart-time');
@@ -299,6 +344,7 @@ async function openUser(userId, fallbackName) {
     document.getElementById('detail-name').textContent = fallbackName || 'User';
     document.getElementById('detail-sub').textContent = 'Loading…';
     document.getElementById('detail-model').innerHTML = '';
+    document.getElementById('detail-category').innerHTML = '';
     document.getElementById('detail-time').innerHTML = '';
     document.querySelector('#detail-appdevice tbody').innerHTML = '';
     document.querySelector('#detail-sessions tbody').innerHTML = '';
@@ -320,6 +366,7 @@ async function openUser(userId, fallbackName) {
     document.getElementById('detail-sub').textContent = email ? `${email} · ${label}` : label;
 
     renderModelChart(data.models, document.getElementById('detail-model'));
+    renderCategoryChart(data.categories, document.getElementById('detail-category'));
     renderUserTimeChart(data.overTime, document.getElementById('detail-time'));
     renderAppDevice(data.appDevice);
     renderUserSessions(data.sessions);
@@ -391,7 +438,7 @@ function renderUserTimeChart(rows, host) {
 function renderUserSessions(rows) {
     const tbody = document.querySelector('#detail-sessions tbody');
     if (!rows || !rows.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="empty">No sessions in range.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="empty">No sessions in range.</td></tr>`;
         return;
     }
     tbody.innerHTML = rows
@@ -401,6 +448,7 @@ function renderUserSessions(rows) {
                 `<td>${escapeHtml(r.surface)}</td>` +
                 `<td>${escapeHtml(r.device_name || '—')}</td>` +
                 `<td>${escapeHtml(shortModel(r.primary_model))}</td>` +
+                `<td>${escapeHtml(r.category || 'unknown')}</td>` +
                 `<td class="num">${fmtTokens(r.total_tokens)}</td>` +
                 `<td class="num">${fmtWater(waterLitres(r.energy_wh))}</td>` +
                 `<td class="num">${fmtCO2(r.co2_grams)}</td></tr>`

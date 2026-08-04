@@ -16,6 +16,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
+import { categorizeLines } from '../../shared/categorizer.ts';
 import {
     aggregate,
     getFirstTimestamp,
@@ -139,6 +140,7 @@ export const coworkSource: Source = {
             sessionId,
             cwd: findCwd(auditPath),
             usage,
+            category: categorizeLines(lines),
             startedAt,
             updatedAt
         } satisfies CollectedSession;

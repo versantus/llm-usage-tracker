@@ -26,6 +26,7 @@ import {
     saveConfig
 } from '../client/config.ts';
 import type { ClientConfig } from '../client/config.ts';
+import { drainReclassifyQueue } from '../client/classify.ts';
 import { cursorPull } from '../client/cursor-pull.ts';
 import { launchGui } from '../client/gui.ts';
 import { windowsFirstRun } from '../client/windows-setup.ts';
@@ -34,6 +35,10 @@ import { runHook } from '../client/hooks/stdin.ts';
 import { agentEnabled, disableAgent, enableAgent } from '../client/launch-agent.ts';
 import { flushSpool } from '../client/post.ts';
 import { scanSource, type ScanItem } from '../client/scan-source.ts';
+import {
+    claudeCodeSource,
+    listClaudeCodeTranscripts
+} from '../client/sources/claude-code-source.ts';
 import {
     codexAvailable,
     codexSource,
@@ -70,7 +75,7 @@ import {
     wireClaudeCodeHook
 } from '../client/wire-hook.ts';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 /**
  * Positional args, normalised across platforms. `bun --compile` lays out
@@ -214,11 +219,17 @@ async function cmdConnect(): Promise<void> {
         ingestToken,
         deviceName,
         claudeCode: existing?.surfaces.claudeCode ?? true,
-        cowork: has('no-cowork') ? false : existing?.surfaces.cowork ?? true
+        cowork: has('no-cowork') ? false : existing?.surfaces.cowork ?? true,
+        categories: has('no-category') ? false : existing?.categories ?? true,
+        llmClassify: has('no-llm-classify') ? false : existing?.llmClassify ?? true
     });
     saveConfig(cfg);
     console.error(`✓ Config written to ${configPath()}`);
     console.error(`  ${cfg.user.name} <${cfg.user.email}>  ·  ${cfg.deviceName}  ·  ${cfg.serverUrl}`);
+    console.error(
+        `  work-type categories: ${cfg.categories === false ? 'OFF (sessions report "unknown")' : 'on (privacy-safe enum only)'}` +
+            ` · backfill history any time with \`lut scan-claude-code --all\``
+    );
 
     if (!has('no-hook')) console.error(`✓ Claude Code hook: ${wireClaudeCodeHook()}`);
 
@@ -290,8 +301,21 @@ async function cmdReport(): Promise<void> {
             `  CO₂ ${(t.co2_grams || 0).toFixed(1)}g · ${Math.round(t.tokens || 0).toLocaleString()} tok · ` +
                 `${t.sessions || 0} sessions · ${t.users || 0} users`
         );
-        for (const u of (s.byUser || []).slice(0, 10)) {
-            console.log(`    ${String(u.name).padEnd(20)} ${(u.co2_grams || 0).toFixed(1)}g`);
+        if (flag('by') === 'category') {
+            const catUrl = days
+                ? `${serverUrl}/api/by-category?days=${days}`
+                : `${serverUrl}/api/by-category`;
+            const cats: any[] = await fetch(catUrl, { headers: authHeaders() }).then((r) => r.json());
+            for (const c of cats) {
+                console.log(
+                    `    ${String(c.category).padEnd(14)} ${String(c.sessions).padStart(4)} sess · ` +
+                        `${Math.round(c.tokens || 0).toLocaleString()} tok`
+                );
+            }
+        } else {
+            for (const u of (s.byUser || []).slice(0, 10)) {
+                console.log(`    ${String(u.name).padEnd(20)} ${(u.co2_grams || 0).toFixed(1)}g`);
+            }
         }
         console.log('');
     } catch (err: any) {
@@ -336,8 +360,21 @@ async function cmdWatch(name: string): Promise<void> {
     const seen = new Map<string, number>();
     console.error(`[usage-tracker:${name}] watching every ${interval}s`);
     await scanSource(cfg, name, def.items(0), def.source, { seen }); // initial full pass
-    setInterval(() => scanSource(cfg, name, def.items(def.backfillHours || 48), def.source, { seen }).catch(() => {}), interval * 1000);
+    setInterval(() => {
+        scanSource(cfg, name, def.items(def.backfillHours || 48), def.source, { seen }).catch(() => {});
+        // Opportunistically drain the work-type reclassify queue (no-op when
+        // empty, opted out, or the claude CLI is absent).
+        drainReclassifyQueue(cfg, { limit: 3, quiet: true }).catch(() => {});
+    }, interval * 1000);
     await new Promise(() => {});
+}
+
+async function cmdClassify(): Promise<void> {
+    const cfg = requireConfig();
+    const res = await drainReclassifyQueue(cfg, { limit: has('once') ? 10 : 100 });
+    console.error(
+        `classify: processed ${res.processed} queued session(s), LLM-reclassified ${res.reclassified}.`
+    );
 }
 
 async function cmdCursorPull(): Promise<void> {
@@ -356,6 +393,7 @@ function usage(): void {
             '  connect    write config, wire the Claude Code hook, enable watchers',
             '             [--name N --email E --server-url U --ingest-token T]',
             '             [--device-name D] [--no-hook] [--no-<surface>]',
+            '             [--no-category] [--no-llm-classify]',
             '  hook       Stop-hook runtime (Claude Code invokes this)',
             '  wire | unwire   (re)wire / remove the Stop hook',
             '  gui        launch the tray + settings GUI (Windows)',
@@ -365,6 +403,10 @@ function usage(): void {
             '  <surface> enable|disable|status',
             '  scan-<surface> [--hours N | --all]',
             '  watch-<surface> [--interval S]',
+            '',
+            'Work types (privacy-safe: only a category label leaves this machine):',
+            '  scan-claude-code [--hours N | --all]   backfill categories onto history',
+            '  classify [--once]                      drain the ambiguous-session queue (LLM stage)',
             '',
             'Cursor (server-side, needs CURSOR_API_KEY):',
             '  cursor-pull [--days N]'
@@ -388,6 +430,22 @@ if (cmd === 'hook') {
     console.error(unwireClaudeCodeHook());
 } else if (cmd && SURFACE_NAMES.includes(cmd)) {
     cmdSurface(cmd);
+} else if (cmd === 'scan-claude-code') {
+    // Backfill: re-report historical Claude Code transcripts (adds work-type
+    // categories to old sessions; the server upsert makes re-sends safe).
+    {
+        const cfg = requireConfig();
+        const hours = has('all') ? 0 : Number(flag('hours') || '24') || 24;
+        const items = listClaudeCodeTranscripts(hours).map((t) => ({
+            sessionId: t.sessionId,
+            path: t.path,
+            mtimeMs: t.mtimeMs
+        }));
+        const res = await scanSource(cfg, 'claude-code', items, claudeCodeSource, {});
+        console.error(`scanned ${res.scanned} claude-code session(s), sent ${res.sent}.`);
+    }
+} else if (cmd === 'classify') {
+    await cmdClassify();
 } else if (scanMatch && SURFACE_NAMES.includes(scanMatch[1])) {
     await cmdScan(scanMatch[1]);
 } else if (watchMatch && SURFACE_NAMES.includes(watchMatch[1])) {

@@ -13,7 +13,7 @@ import { mkdirSync } from 'node:fs';
 
 import type { IngestEvent } from '../shared/types.ts';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export function defaultDbPath(): string {
     return (
@@ -65,6 +65,9 @@ function migrate(db: Database): void {
                 energy_wh             REAL NOT NULL DEFAULT 0,
                 co2_grams             REAL NOT NULL DEFAULT 0,
                 carbon_approx         INTEGER NOT NULL DEFAULT 0,
+                category              TEXT NOT NULL DEFAULT 'unknown',
+                category_confidence  REAL NOT NULL DEFAULT 0,
+                category_source       TEXT NOT NULL DEFAULT 'none',
                 started_at            TEXT NOT NULL,
                 updated_at            TEXT NOT NULL,
                 PRIMARY KEY (user_id, session_id)
@@ -86,6 +89,21 @@ function migrate(db: Database): void {
             db.exec(`ALTER TABLE sessions ADD COLUMN device_name TEXT NOT NULL DEFAULT '';`);
         } catch (err: any) {
             if (!String(err?.message ?? err).includes('duplicate column')) throw err;
+        }
+    }
+
+    // v3: work-type category (privacy-safe closed enum + confidence + source).
+    if (current < 3) {
+        for (const ddl of [
+            `ALTER TABLE sessions ADD COLUMN category TEXT NOT NULL DEFAULT 'unknown';`,
+            `ALTER TABLE sessions ADD COLUMN category_confidence REAL NOT NULL DEFAULT 0;`,
+            `ALTER TABLE sessions ADD COLUMN category_source TEXT NOT NULL DEFAULT 'none';`
+        ]) {
+            try {
+                db.exec(ddl);
+            } catch (err: any) {
+                if (!String(err?.message ?? err).includes('duplicate column')) throw err;
+            }
         }
     }
 
@@ -113,12 +131,14 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
             user_id, session_id, provider, surface, machine_id, device_name, cwd,
             primary_model, models_used,
             input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, total_tokens,
-            energy_wh, co2_grams, carbon_approx, started_at, updated_at
+            energy_wh, co2_grams, carbon_approx,
+            category, category_confidence, category_source, started_at, updated_at
          ) VALUES (
             $user_id, $session_id, $provider, $surface, $machine_id, $device_name, $cwd,
             $primary_model, $models_used,
             $input_tokens, $output_tokens, $cache_creation_tokens, $cache_read_tokens, $total_tokens,
-            $energy_wh, $co2_grams, $carbon_approx, $started_at, $updated_at
+            $energy_wh, $co2_grams, $carbon_approx,
+            $category, $category_confidence, $category_source, $started_at, $updated_at
          )
          ON CONFLICT(user_id, session_id) DO UPDATE SET
             provider = excluded.provider,
@@ -136,6 +156,9 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
             energy_wh = excluded.energy_wh,
             co2_grams = excluded.co2_grams,
             carbon_approx = excluded.carbon_approx,
+            category = excluded.category,
+            category_confidence = excluded.category_confidence,
+            category_source = excluded.category_source,
             updated_at = excluded.updated_at
          WHERE excluded.updated_at >= sessions.updated_at`
     ).run({
@@ -156,6 +179,9 @@ export function upsertEvent(db: Database, e: IngestEvent): void {
         $energy_wh: e.energyWh,
         $co2_grams: e.co2Grams,
         $carbon_approx: e.carbonApprox ? 1 : 0,
+        $category: e.category,
+        $category_confidence: e.categoryConfidence,
+        $category_source: e.categorySource,
         $started_at: e.startedAt,
         $updated_at: e.updatedAt
     });
@@ -311,6 +337,38 @@ export function overTime(db: Database, days?: number) {
         .all();
 }
 
+/** Per-work-type rollup. */
+export function summaryByCategory(db: Database, days?: number) {
+    return db
+        .query(
+            `SELECT category,
+                    COUNT(*) AS sessions,
+                    COALESCE(SUM(total_tokens), 0) AS tokens,
+                    COALESCE(SUM(energy_wh), 0) AS energy_wh,
+                    COALESCE(SUM(co2_grams), 0) AS co2_grams
+             FROM sessions
+             ${sinceClause(days)}
+             GROUP BY category
+             ORDER BY tokens DESC`
+        )
+        .all();
+}
+
+/** Per-work-type rollup for one user. */
+export function categoriesForUser(db: Database, userId: string, days?: number) {
+    return db
+        .query(
+            `SELECT category,
+                    COUNT(*) AS sessions,
+                    COALESCE(SUM(total_tokens), 0) AS tokens,
+                    COALESCE(SUM(co2_grams), 0) AS co2_grams
+             FROM sessions WHERE user_id = $id${andSince(days)}
+             GROUP BY category
+             ORDER BY tokens DESC`
+        )
+        .all({ $id: userId });
+}
+
 /** Grand totals. */
 export function totals(db: Database, days?: number) {
     return db
@@ -329,7 +387,7 @@ export function totals(db: Database, days?: number) {
 export function sessionsForUser(db: Database, userId: string, days?: number, limit = 50) {
     return db
         .query(
-            `SELECT session_id, provider, surface, device_name, primary_model, cwd,
+            `SELECT session_id, provider, surface, device_name, primary_model, cwd, category,
                     total_tokens, energy_wh, co2_grams, started_at, updated_at
              FROM sessions WHERE user_id = $id${andSince(days)}
              ORDER BY updated_at DESC LIMIT $limit`

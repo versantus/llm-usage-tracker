@@ -29,6 +29,12 @@ export function toIngestEvent(cfg: ClientConfig, s: CollectedSession): IngestEve
     const carbon = calculateSessionCarbon(s.usage);
     const approx = isCarbonApproximate(s.usage.primaryModel);
 
+    // Privacy choke point: every send path (hook, watchers, backfill, spool)
+    // goes through here, so enforcing the opt-out here guarantees it globally.
+    // Only the closed enum + confidence + source are ever mapped; the feature
+    // vector / scores / ambiguity flag stay on this machine.
+    const optedOut = cfg.categories === false;
+
     return {
         userId: cfg.userId,
         userName: cfg.user.name,
@@ -49,6 +55,9 @@ export function toIngestEvent(cfg: ClientConfig, s: CollectedSession): IngestEve
         energyWh: carbon.energy.energyWh,
         co2Grams: carbon.co2Grams,
         carbonApprox: approx,
+        category: optedOut ? 'unknown' : s.category?.category ?? 'unknown',
+        categoryConfidence: optedOut ? 0 : s.category?.confidence ?? 0,
+        categorySource: optedOut ? 'none' : s.category?.source ?? 'none',
         startedAt: s.startedAt,
         updatedAt: s.updatedAt
     };

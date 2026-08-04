@@ -49,6 +49,13 @@ Three parts share a vendored core:
   `isCarbonApproximate()`. Add per-model configs to `carbon-calculator.ts` to make exact.
 - **Model breakdown** uses each session's `models_used` JSON (not just `primary_model`),
   allocating energy/CO₂ by token share — see `summaryByModel()` in `server/db.ts`.
+- **Work-type categorisation is metadata-only.** `shared/categorizer.ts` reduces
+  transcripts to a NUMERIC feature vector (tool counts, extension buckets, Bash verb
+  buckets, patch line counts); only `category`/`categoryConfidence`/`categorySource`
+  ever reach the wire (choke point: `toIngestEvent`, which also enforces the
+  `categories:false` opt-out). The optional LLM stage (`client/classify.ts`) runs
+  locally via the user's `claude` CLI and sees ONLY that vector — never session text.
+  Don't add content-derived fields (ai-title, prompts, paths) to anything sent.
 
 ## Commands
 
@@ -60,11 +67,14 @@ LUT_ALLOW_NO_AUTH=1 bun run server/index.ts   # start server :4317 (auth is fail
 bun run client/setup.ts --name N --email E --server-url URL [--no-cowork] [--wire-hook]
 bun run client/hooks/stop.ts                  # hook (reads stdin JSON)
 bun run client/watch-cowork.ts [--once] [--interval 15]
-bun run cli/report.ts [--days N] [--by user|model] [--json] [--server URL]
+bun run cli/report.ts [--days N] [--by user|model|category] [--json] [--server URL]
+bun cli/lut.ts scan-claude-code [--hours N|--all] # backfill categories onto history
+bun cli/lut.ts classify [--once]              # drain the ambiguous-session LLM queue
+bun run scripts/classify-local.ts             # dev-only: calibrate categoriser on local transcripts
 ```
 
-No test suite yet. Verify changes with `bunx tsc --noEmit` + a manual curl to `/ingest`
-and a `cut report` (see README "Quick start").
+Tests: `bun test` (categoriser unit tests in `shared/categorizer.test.ts`). Also verify
+with `bunx tsc --noEmit` + a manual curl to `/ingest` (see README "Quick start").
 
 ## Config & data locations
 

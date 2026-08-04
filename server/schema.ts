@@ -49,6 +49,11 @@ export const IngestEventSchema = z.object({
     energyWh: count,
     co2Grams: count,
     carbonApprox: z.boolean().default(false),
+    category: z
+        .enum(['coding', 'debugging', 'docs-writing', 'research', 'planning', 'other', 'unknown'])
+        .default('unknown'),
+    categoryConfidence: z.number().min(0).max(1).default(0),
+    categorySource: z.enum(['heuristic', 'llm', 'none']).default('none'),
     startedAt: isoTimestamp,
     updatedAt: isoTimestamp
 });

@@ -155,6 +155,12 @@ Config lives at `~/.config/llm-usage-tracker/config.json`.
 
 ## Privacy & data
 
-Only **token counts, model names, timestamps, and your name/email** are sent — no
-prompts, code, or file contents ever leave your machine. If the server is
-unreachable, events are spooled locally and retried later.
+Only **token counts, model names, timestamps, a work-type label
+(e.g. "coding" / "research"), and your name/email** are sent — no prompts,
+code, or file contents ever leave your machine. If the server is unreachable,
+events are spooled locally and retried later.
+
+The work-type label is computed **on your machine** from metadata only (tool
+counts, file extensions, command kinds — never text). Turn it off any time
+with `lut connect --no-category`; your sessions then report `unknown`. See the
+README's "Work-type categories" section for the full mechanics.

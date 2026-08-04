@@ -2,7 +2,7 @@
 /**
  * `cut report` — query the central server and print a usage + carbon report.
  *
- *   bun run cli/report.ts [--days N] [--by user|model] [--json] [--server URL]
+ *   bun run cli/report.ts [--days N] [--by user|model|category] [--json] [--server URL]
  *
  * Defaults to the server URL from client config / LUT_SERVER_URL / localhost:4317.
  */
@@ -59,9 +59,11 @@ function padL(s: string, w: number): string {
 
 let summary: any;
 let byModel: any[] = [];
+let byCategory: any[] = [];
 try {
     summary = await get('/api/summary');
     if (by === 'model') byModel = await get('/api/by-model');
+    if (by === 'category') byCategory = await get('/api/by-category');
 } catch (err: any) {
     console.error(`Could not reach server at ${serverUrl}: ${err.message}`);
     console.error('Is `cut-server` running? Try: bun run server/index.ts');
@@ -69,7 +71,7 @@ try {
 }
 
 if (wantJson) {
-    console.log(JSON.stringify({ summary, byModel }, null, 2));
+    console.log(JSON.stringify({ summary, byModel, byCategory }, null, 2));
     process.exit(0);
 }
 
@@ -94,7 +96,17 @@ console.log(
 );
 console.log('');
 
-if (by === 'model') {
+if (by === 'category') {
+    console.log('  By work type');
+    console.log('  ' + '─'.repeat(56));
+    for (const r of byCategory) {
+        console.log(
+            `  ${pad(r.category, 14)}  ${padL(formatCO2(r.co2_grams), 9)}  ` +
+                `${padL(fmtTokens(r.tokens), 14)} tok  ${padL(String(r.sessions), 4)} sess`
+        );
+    }
+    if (!byCategory.length) console.log('  (no usage yet)');
+} else if (by === 'model') {
     console.log('  By model');
     console.log('  ' + '─'.repeat(56));
     const nameW = Math.max(5, ...byModel.map((r) => String(r.model).length));

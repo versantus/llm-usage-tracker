@@ -36,6 +36,7 @@ export async function handleIngest(db: Database, req: Request): Promise<Response
         primaryModel: event.primaryModel,
         totalTokens: event.totalTokens,
         co2Grams: event.co2Grams,
+        category: event.category,
         updatedAt: event.updatedAt
     });
 
