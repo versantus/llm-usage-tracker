@@ -33,6 +33,7 @@ export const IngestEventSchema = z.object({
             'antigravity-cli',
             'copilot',
             'ollama',
+            'hermes',
             'cursor',
             'unknown'
         ])

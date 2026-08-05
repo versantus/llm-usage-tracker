@@ -68,6 +68,11 @@ import {
     ollamaAvailable,
     ollamaSource
 } from '../client/sources/ollama-source.ts';
+import {
+    hermesAvailable,
+    hermesSource,
+    listHermesSessions
+} from '../client/sources/hermes-source.ts';
 import type { Source } from '../client/sources/source.ts';
 import {
     isHookWired,
@@ -173,6 +178,13 @@ const SURFACES: Record<string, SurfaceDef> = {
         available: ollamaAvailable,
         items: (h) => listOllamaChats(h),
         source: ollamaSource,
+        backfillHours: 0,
+        interval: 60
+    },
+    hermes: {
+        available: hermesAvailable,
+        items: (h) => listHermesSessions(h),
+        source: hermesSource,
         backfillHours: 0,
         interval: 60
     }

@@ -18,6 +18,7 @@ export type Surface =
     | 'antigravity-cli'
     | 'copilot'
     | 'ollama'
+    | 'hermes'
     | 'cursor'
     | 'unknown';
 
