@@ -10,8 +10,6 @@
  *       --server-url http://localhost:4317 [--no-cowork] [--wire-hook]
  */
 
-import { createInterface } from 'node:readline/promises';
-
 import {
     buildConfig,
     configPath,
@@ -21,6 +19,7 @@ import {
     saveConfig
 } from './config.ts';
 import { flushSpool } from './post.ts';
+import { ask } from './prompt.ts';
 import { coworkAvailable, coworkSessionsRoot } from './sources/cowork-source.ts';
 import { wireClaudeCodeHook } from './wire-hook.ts';
 
@@ -32,15 +31,6 @@ function has(name: string): boolean {
     return process.argv.includes(`--${name}`);
 }
 
-async function prompt(question: string, fallback?: string): Promise<string> {
-    if (!process.stdin.isTTY) return fallback ?? '';
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    const suffix = fallback ? ` [${fallback}]` : '';
-    const answer = (await rl.question(`${question}${suffix}: `)).trim();
-    rl.close();
-    return answer || fallback || '';
-}
-
 const existing = loadConfig();
 
 let name = flag('name') ?? existing?.user.name ?? '';
@@ -50,9 +40,9 @@ const ingestToken =
     flag('ingest-token') ?? process.env.LUT_INGEST_TOKEN ?? existing?.ingestToken;
 let deviceName = flag('device-name') ?? process.env.LUT_DEVICE_NAME ?? existing?.deviceName ?? '';
 
-if (!name) name = await prompt('Your name');
-if (!email) email = await prompt('Your work email');
-if (!deviceName) deviceName = await prompt('Device / OS label (for breakdowns)', detectDeviceName());
+if (!name) name = ask('Your name');
+if (!email) email = ask('Your work email');
+if (!deviceName) deviceName = ask('Device / OS label (for breakdowns)', detectDeviceName());
 
 if (!name || !email) {
     console.error('Name and email are required. Pass --name and --email, or run interactively.');

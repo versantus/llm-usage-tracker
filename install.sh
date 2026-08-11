@@ -14,6 +14,8 @@
 #
 # Overrides:
 #   LUT_REPO        owner/repo to fetch from   (default: auto-detected / versantus/llm-usage-tracker)
+#   LUT_REF         branch or tag to build from source instead of the latest
+#                   release / local checkout (for testing a fix before it ships)
 #   LUT_BIN_DIR     install dir                 (default: ~/.local/bin)
 #   LUT_NO_CONNECT  set to 1 to skip `lut connect`
 set -euo pipefail
@@ -85,8 +87,29 @@ STAGE="$DEST.new.$$"
 cleanup_stage() { rm -f "$STAGE"; }
 trap cleanup_stage EXIT
 
+# Clone the repo (optionally at a ref) into a temp dir and build from it. $1 is
+# the output path; $2 (optional) is the branch/tag.
+clone_and_build() {
+    local out="$1" ref="${2:-}"
+    local args=(--depth 1)
+    [[ -n "$ref" ]] && args+=(--branch "$ref")
+    TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"; cleanup_stage' EXIT
+    if ! git clone "${args[@]}" "https://github.com/$REPO.git" "$TMP/repo" >/dev/null 2>&1; then
+        [[ -n "$ref" ]] && die "could not clone $REPO at ref '$ref' (needs git + network; branch/tag names only)"
+        die "could not clone https://github.com/$REPO (set LUT_REPO=owner/repo)"
+    fi
+    build_from_source "$TMP/repo" "$out"
+}
+
+# 0) Naming a ref means "install THAT code" — it wins over local checkouts and
+#    release assets alike, so testers never silently get the wrong build.
+if [[ -n "${LUT_REF:-}" ]]; then
+    say "building $REPO@$LUT_REF from source…"
+    clone_and_build "$STAGE" "$LUT_REF"
+
 # 1) Running from a clone with a prebuilt binary -> just copy it.
-if [[ -n "$SCRIPT_DIR" && -x "$SCRIPT_DIR/dist/lut" ]]; then
+elif [[ -n "$SCRIPT_DIR" && -x "$SCRIPT_DIR/dist/lut" ]]; then
     say "using prebuilt $SCRIPT_DIR/dist/lut"
     cp "$SCRIPT_DIR/dist/lut" "$STAGE"
 
@@ -104,11 +127,7 @@ else
         :
     else
         warn "no release asset (or download failed); cloning + building from source"
-        TMP="$(mktemp -d)"
-        trap 'rm -rf "$TMP"; cleanup_stage' EXIT
-        git clone --depth 1 "https://github.com/$REPO.git" "$TMP/repo" >/dev/null 2>&1 \
-            || die "could not clone https://github.com/$REPO (set LUT_REPO=owner/repo)"
-        build_from_source "$TMP/repo" "$STAGE"
+        clone_and_build "$STAGE"
     fi
 fi
 
@@ -141,16 +160,20 @@ ARGS=()
 
 # ${ARGS[@]+...}: bash 3.2 (stock macOS) treats an empty array as unbound
 # under `set -u`, so a plain "${ARGS[@]}" would abort the installer here.
+# A connect failure (e.g. output redirected so prompts are disabled) must NOT
+# abort the install — the binary is already in place; tell the user how to
+# finish instead of dying under `set -e`.
 say "connecting Claude Code…"
+connect_hint() { warn "setup incomplete — finish by running: lut connect"; }
 if [[ -n "${LUT_NAME:-}" && -n "${LUT_EMAIL:-}" ]]; then
     # Fully specified via env (CI / dotfiles): no prompts needed.
-    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"}
+    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"} || connect_hint
 elif [[ -t 0 ]]; then
-    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"}
+    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"} || connect_hint
 elif (exec </dev/tty) 2>/dev/null; then
     # Piped one-liner: stdin is the script itself, so reattach prompts to the
     # terminal — otherwise `lut connect` can never ask for name/email.
-    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"} </dev/tty
+    "$DEST" connect ${ARGS[@]+"${ARGS[@]}"} </dev/tty || connect_hint
 else
     warn "no interactive terminal — finish setup by running: lut connect"
     exit 0

@@ -69,6 +69,10 @@ if ($env:LUT_INGEST_TOKEN) { $cargs += @('--ingest-token', $env:LUT_INGEST_TOKEN
 
 Say "connecting Claude Code..."
 & $Dest @cargs
+if ($LASTEXITCODE -ne 0) {
+    # Don't pretend success: the binary is installed but no config was written.
+    Warn "setup incomplete (lut connect exited $LASTEXITCODE) — finish by running 'lut connect' in a terminal, or use the tray Settings."
+}
 
 # Offer the tray GUI (built into lut.exe: `lut gui`) + run-at-login.
 $ans = Read-Host "Run the tray GUI now and at login? (Y/n)"
