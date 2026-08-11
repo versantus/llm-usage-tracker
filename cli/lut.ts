@@ -15,8 +15,6 @@
  * tracked by background watchers; the hook needs no bun/npx at runtime.
  */
 
-import { createInterface } from 'node:readline/promises';
-
 import {
     buildConfig,
     configPath,
@@ -35,6 +33,7 @@ import { stopHookMain } from '../client/hooks/run-stop.ts';
 import { runHook } from '../client/hooks/stdin.ts';
 import { agentEnabled, disableAgent, enableAgent } from '../client/launch-agent.ts';
 import { flushSpool } from '../client/post.ts';
+import { ask } from '../client/prompt.ts';
 import { scanSource, type ScanItem } from '../client/scan-source.ts';
 import {
     claudeCodeSource,
@@ -111,15 +110,6 @@ function flag(name: string): string | undefined {
 }
 function has(name: string): boolean {
     return ARGS.includes(`--${name}`);
-}
-
-async function ask(question: string, fallback?: string): Promise<string> {
-    if (!process.stdin.isTTY) return fallback ?? '';
-    const rl = createInterface({ input: process.stdin, output: process.stderr });
-    const suffix = fallback ? ` [${fallback}]` : '';
-    const answer = (await rl.question(`${question}${suffix}: `)).trim();
-    rl.close();
-    return answer || fallback || '';
 }
 
 function authHeaders(): Record<string, string> {
@@ -211,15 +201,15 @@ async function cmdConnect(): Promise<void> {
     let ingestToken = flag('ingest-token') ?? process.env.LUT_INGEST_TOKEN ?? existing?.ingestToken;
     let deviceName = flag('device-name') ?? process.env.LUT_DEVICE_NAME ?? existing?.deviceName ?? '';
 
-    if (!name) name = await ask('Your name');
-    if (!email) email = await ask('Your work email');
+    if (!name) name = ask('Your name');
+    if (!email) email = ask('Your work email');
     // Prompt for the team server + token too — silently defaulting to
     // localhost would leave a one-click install reporting to nowhere.
-    if (!serverUrl) serverUrl = await ask('Server URL (from your admin)', defaultServerUrl());
+    if (!serverUrl) serverUrl = ask('Server URL (from your admin)', defaultServerUrl());
     if (ingestToken === undefined) {
-        ingestToken = (await ask('Ingest token (from your admin; blank if none)')) || undefined;
+        ingestToken = ask('Ingest token (from your admin; blank if none)') || undefined;
     }
-    if (!deviceName) deviceName = await ask('Device / OS label', detectDeviceName());
+    if (!deviceName) deviceName = ask('Device / OS label', detectDeviceName());
     if (!name || !email) {
         console.error('Name and email are required (pass --name and --email, or run interactively).');
         process.exit(1);
