@@ -9,6 +9,7 @@ import {
     calculateSessionCarbon,
     isCarbonApproximate
 } from '../../shared/carbon-calculator.ts';
+import { CLIENT_VERSION } from '../../shared/version.ts';
 import type { CollectedSession, IngestEvent } from '../../shared/types.ts';
 import type { ClientConfig } from '../config.ts';
 
@@ -58,6 +59,7 @@ export function toIngestEvent(cfg: ClientConfig, s: CollectedSession): IngestEve
         category: optedOut ? 'unknown' : s.category?.category ?? 'unknown',
         categoryConfidence: optedOut ? 0 : s.category?.confidence ?? 0,
         categorySource: optedOut ? 'none' : s.category?.source ?? 'none',
+        clientVersion: CLIENT_VERSION,
         startedAt: s.startedAt,
         updatedAt: s.updatedAt
     };

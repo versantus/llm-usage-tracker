@@ -13,7 +13,7 @@ import { mkdirSync } from 'node:fs';
 
 import type { IngestEvent } from '../shared/types.ts';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export function defaultDbPath(): string {
     return (
@@ -68,6 +68,7 @@ function migrate(db: Database): void {
                 category              TEXT NOT NULL DEFAULT 'unknown',
                 category_confidence  REAL NOT NULL DEFAULT 0,
                 category_source       TEXT NOT NULL DEFAULT 'none',
+                client_version        TEXT NOT NULL DEFAULT '',
                 started_at            TEXT NOT NULL,
                 updated_at            TEXT NOT NULL,
                 PRIMARY KEY (user_id, session_id)
@@ -92,11 +93,13 @@ function migrate(db: Database): void {
     }
 
     // v3: work-type category (privacy-safe closed enum + confidence + source).
-    if (current < 3) {
+    // v4: reporting client version.
+    if (current < 4) {
         for (const ddl of [
             `ALTER TABLE sessions ADD COLUMN category TEXT NOT NULL DEFAULT 'unknown';`,
             `ALTER TABLE sessions ADD COLUMN category_confidence REAL NOT NULL DEFAULT 0;`,
-            `ALTER TABLE sessions ADD COLUMN category_source TEXT NOT NULL DEFAULT 'none';`
+            `ALTER TABLE sessions ADD COLUMN category_source TEXT NOT NULL DEFAULT 'none';`,
+            `ALTER TABLE sessions ADD COLUMN client_version TEXT NOT NULL DEFAULT '';`
         ]) {
             try {
                 db.exec(ddl);
@@ -155,13 +158,13 @@ function doUpsert(db: Database, e: IngestEvent): void {
             primary_model, models_used,
             input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, total_tokens,
             energy_wh, co2_grams, carbon_approx,
-            category, category_confidence, category_source, started_at, updated_at
+            category, category_confidence, category_source, client_version, started_at, updated_at
          ) VALUES (
             $user_id, $session_id, $provider, $surface, $machine_id, $device_name, $cwd,
             $primary_model, $models_used,
             $input_tokens, $output_tokens, $cache_creation_tokens, $cache_read_tokens, $total_tokens,
             $energy_wh, $co2_grams, $carbon_approx,
-            $category, $category_confidence, $category_source, $started_at, $updated_at
+            $category, $category_confidence, $category_source, $client_version, $started_at, $updated_at
          )
          ON CONFLICT(user_id, session_id) DO UPDATE SET
             provider = excluded.provider,
@@ -182,6 +185,7 @@ function doUpsert(db: Database, e: IngestEvent): void {
             category = excluded.category,
             category_confidence = excluded.category_confidence,
             category_source = excluded.category_source,
+            client_version = excluded.client_version,
             updated_at = excluded.updated_at
          WHERE excluded.updated_at >= sessions.updated_at`
     ).run({
@@ -205,6 +209,7 @@ function doUpsert(db: Database, e: IngestEvent): void {
         $category: e.category,
         $category_confidence: e.categoryConfidence,
         $category_source: e.categorySource,
+        $client_version: e.clientVersion,
         $started_at: e.startedAt,
         $updated_at: e.updatedAt
     });
@@ -303,7 +308,10 @@ export function summaryByUser(db: Database, days?: number) {
                     COUNT(*) AS sessions,
                     COALESCE(SUM(s.total_tokens), 0) AS tokens,
                     COALESCE(SUM(s.energy_wh), 0) AS energy_wh,
-                    COALESCE(SUM(s.co2_grams), 0) AS co2_grams
+                    COALESCE(SUM(s.co2_grams), 0) AS co2_grams,
+                    (SELECT client_version FROM sessions s2
+                     WHERE s2.user_id = s.user_id AND s2.client_version != ''
+                     ORDER BY s2.updated_at DESC LIMIT 1) AS client_version
              FROM sessions s JOIN users u USING(user_id)
              ${sinceClause(days)}
              GROUP BY s.user_id

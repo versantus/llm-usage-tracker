@@ -123,6 +123,8 @@ export interface IngestEvent {
     category: WorkCategory;
     categoryConfidence: number;
     categorySource: CategorySource;
+    /** Version of the reporting client (lut), e.g. "1.5.0". */
+    clientVersion: string;
     startedAt: string;
     updatedAt: string;
 }

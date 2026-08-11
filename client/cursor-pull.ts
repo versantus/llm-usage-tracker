@@ -16,6 +16,7 @@
 
 import { calculateCarbonFromTokens, isCarbonApproximate } from '../shared/carbon-calculator.ts';
 import type { IngestEvent } from '../shared/types.ts';
+import { CLIENT_VERSION } from '../shared/version.ts';
 import type { ClientConfig } from './config.ts';
 import { userIdFromEmail } from './config.ts';
 import { postEvent } from './post.ts';
@@ -109,6 +110,7 @@ export async function cursorPull(cfg: ClientConfig): Promise<void> {
                 category: 'unknown', // Cursor is server-side usage data — no local signals to classify
                 categoryConfidence: 0,
                 categorySource: 'none',
+                clientVersion: CLIENT_VERSION,
                 startedAt: ts,
                 updatedAt: ts
             };

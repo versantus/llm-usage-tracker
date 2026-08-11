@@ -19,6 +19,8 @@ struct UserRow: Decodable, Identifiable, Hashable {
     var tokens: Double
     var energyWh: Double
     var co2Grams: Double
+    /// Tracker version of the user's latest session (absent on old servers).
+    var clientVersion: String?
 
     var id: String { userId }
 }

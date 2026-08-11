@@ -55,6 +55,7 @@ export const IngestEventSchema = z.object({
         .default('unknown'),
     categoryConfidence: z.number().min(0).max(1).default(0),
     categorySource: z.enum(['heuristic', 'llm', 'none']).default('none'),
+    clientVersion: z.string().max(32).default(''),
     startedAt: isoTimestamp,
     updatedAt: isoTimestamp
 });

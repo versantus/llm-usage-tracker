@@ -201,7 +201,7 @@ function renderProviders(rows) {
 function renderUsers(rows) {
     const tbody = document.querySelector('#user-table tbody');
     if (!rows || !rows.length) {
-        tbody.innerHTML = `<tr><td colspan="6" class="empty">No usage yet. Run a session or POST to /ingest.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="empty">No usage yet. Run a session or POST to /ingest.</td></tr>`;
         return;
     }
     tbody.innerHTML = rows
@@ -214,7 +214,8 @@ function renderUsers(rows) {
                 `<td class="num">${fmtInt(r.sessions)}</td>` +
                 `<td class="num">${fmtTokens(r.tokens)}</td>` +
                 `<td class="num">${fmtEnergy(r.energy_wh)}</td>` +
-                `<td class="num">${fmtCO2(r.co2_grams)}</td></tr>`
+                `<td class="num">${fmtCO2(r.co2_grams)}</td>` +
+                `<td class="num">${escapeHtml(r.client_version || '—')}</td></tr>`
             );
         })
         .join('');

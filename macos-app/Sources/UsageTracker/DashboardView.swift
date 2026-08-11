@@ -221,6 +221,11 @@ struct DashboardView: View {
                     TableColumn("Tokens") { Text(Fmt.tokens($0.tokens)).monospacedDigit() }
                     TableColumn("Energy") { Text(Fmt.energy($0.energyWh)).monospacedDigit() }
                     TableColumn("CO₂") { Text(Fmt.co2($0.co2Grams)).monospacedDigit() }
+                    TableColumn("Client") { u in
+                        Text(u.clientVersion ?? "—")
+                            .monospacedDigit().foregroundStyle(Theme.muted)
+                            .help("Tracker version of the latest session")
+                    }
                 }
                 .frame(minHeight: 220, maxHeight: 420)
                 .onChange(of: selectedUserID) { _, id in
