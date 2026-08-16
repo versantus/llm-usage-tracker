@@ -4,13 +4,17 @@
  * run the watcher under your own service manager.
  *
  * Each agent is labelled uk.co.versantus.usage-tracker.<suffix> and runs
- * `<lut> <subcommand>` (e.g. `lut watch-codex`).
+ * `<lut> <subcommand>` (e.g. `lut watch-codex`) from an empty WorkingDirectory
+ * — launchd's default is `/`, which anything we spawn (notably the `claude`
+ * CLI used for classification) would otherwise take as its workspace root.
  */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
+
+import { agentWorkDir } from './config.ts';
 
 const PREFIX = 'uk.co.versantus.usage-tracker';
 
@@ -43,6 +47,8 @@ function plistBody(suffix: string, lutPath: string, subcommand: string): string 
         <string>${xml(lutPath)}</string>
         <string>${xml(subcommand)}</string>
     </array>
+    <key>WorkingDirectory</key>
+    <string>${xml(agentWorkDir())}</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>

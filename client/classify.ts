@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
 import type { SessionFeatures } from '../shared/categorizer.ts';
 import { classifyHeuristic, extractSessionFeatures, mergeFeatures } from '../shared/categorizer.ts';
 import type { CategoryResult, Surface, WorkCategory } from '../shared/types.ts';
-import { configDir, type ClientConfig } from './config.ts';
+import { agentWorkDir, configDir, type ClientConfig } from './config.ts';
 import { postEvent } from './post.ts';
 import { claudeCodeSource } from './sources/claude-code-source.ts';
 import { coworkSource } from './sources/cowork-source.ts';
@@ -138,6 +138,10 @@ export async function llmClassify(
 
     try {
         const proc = Bun.spawn([cli, '-p', '--model', 'haiku', prompt], {
+            // Claude Code indexes its working directory. Never inherit ours —
+            // watchers run from `/` under launchd, which would make a one-shot
+            // classify call crawl the entire filesystem. See agentWorkDir().
+            cwd: agentWorkDir(),
             stdin: 'ignore',
             stdout: 'pipe',
             stderr: 'ignore'
