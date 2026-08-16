@@ -133,8 +133,12 @@ fi
 
 chmod +x "$STAGE"
 # Ad-hoc sign on macOS so the binary isn't killed by AMFI in edge cases.
+# `-i lut` pins the signing identifier: codesign otherwise derives it from the
+# staging filename ("lut.new.$$"), giving every install a different code
+# identity, so macOS TCC treats each upgrade as a brand-new app and re-asks for
+# every permission the user already granted.
 if [[ "$(uname -s)" == "Darwin" ]] && command -v codesign >/dev/null 2>&1; then
-    codesign --force --sign - "$STAGE" >/dev/null 2>&1 || true
+    codesign --force --sign - --identifier lut "$STAGE" >/dev/null 2>&1 || true
 fi
 mv -f "$STAGE" "$DEST"
 say "installed $DEST"

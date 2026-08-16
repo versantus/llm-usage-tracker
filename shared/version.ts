@@ -3,4 +3,4 @@
  * who's on a stale build. Single source of truth — `lut version` prints it and
  * the release tag should match.
  */
-export const CLIENT_VERSION = '1.5.1';
+export const CLIENT_VERSION = '1.6.0';

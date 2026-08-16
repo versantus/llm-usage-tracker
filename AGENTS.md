@@ -56,6 +56,16 @@ Three parts share a vendored core:
   `categories:false` opt-out). The optional LLM stage (`client/classify.ts`) runs
   locally via the user's `claude` CLI and sees ONLY that vector — never session text.
   Don't add content-derived fields (ai-title, prompts, paths) to anything sent.
+- **Never let a spawned tool inherit our working directory.** Watchers run under
+  launchd, whose default cwd is `/`, and the `claude` CLI indexes its cwd as a
+  workspace — inheriting it made every classify call crawl the whole filesystem
+  and triggered macOS TCC prompts (Documents/Downloads/Photos/network volumes)
+  attributed to `lut`. Both the LaunchAgent `WorkingDirectory` and the classify
+  spawn point at `agentWorkDir()` (`client/config.ts`), which must stay empty.
+- **`install.sh` ad-hoc signs with `--identifier lut`.** Without it codesign
+  derives the identifier from the staging filename (`lut.new.$$`), so every
+  install has a different code identity and macOS re-asks for permissions the
+  user already granted.
 
 ## Commands
 

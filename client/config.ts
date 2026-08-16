@@ -52,6 +52,29 @@ export function spoolPath(): string {
     return join(configDir(), 'spool.ndjson');
 }
 
+/**
+ * An empty directory used as the working directory for background watchers and
+ * for the `claude` CLI we spawn to classify ambiguous sessions.
+ *
+ * launchd starts agents in `/`, and the Claude Code CLI treats its cwd as the
+ * workspace to index — so an inherited `/` made every classify call crawl the
+ * whole filesystem. On macOS that trips TCC prompts for Documents, Downloads,
+ * Photos and network volumes, all attributed to `lut` (the responsible process
+ * of the spawn tree), and it is a lot of pointless I/O everywhere else.
+ * Pointing both at an empty directory keeps that scan to nothing.
+ *
+ * Deliberately kept empty: never write anything here.
+ */
+export function agentWorkDir(): string {
+    const dir = join(configDir(), 'workdir');
+    try {
+        mkdirSync(dir, { recursive: true });
+    } catch {
+        // best effort — callers fall back to the inherited cwd
+    }
+    return dir;
+}
+
 /** Stable id derived from the email (dedups a person across machines). */
 export function userIdFromEmail(email: string): string {
     return createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
