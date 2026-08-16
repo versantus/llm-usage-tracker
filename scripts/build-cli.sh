@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Compile the `lut` CLI into standalone binaries with `bun build --compile`.
 #
-#   ./scripts/build-cli.sh            # native binary -> dist/lut
-#   ./scripts/build-cli.sh --all      # cross-compile every release target
+#   ./scripts/build-cli.sh                  # native binary -> dist/lut
+#   ./scripts/build-cli.sh --all            # cross-compile every release target
+#   ./scripts/build-cli.sh darwin-arm64     # one target -> dist/lut-darwin-arm64
 #
 # Requires bun. The output binaries embed the bun runtime, so they run with no
 # bun/node/npx present — which is what the Claude Code hook needs.
@@ -21,15 +22,28 @@ build_target() {
         --target="$target" "$ENTRY" --outfile "$OUT_DIR/$asset"
 }
 
-if [[ "${1:-}" == "--all" ]]; then
-    build_target bun-darwin-arm64  lut-darwin-arm64
-    build_target bun-darwin-x64    lut-darwin-x64
-    build_target bun-linux-x64     lut-linux-x64
-    build_target bun-linux-arm64   lut-linux-arm64
-    build_target bun-windows-x64   lut-windows-x64.exe
-    build_target bun-windows-arm64 lut-windows-arm64.exe
-    echo "==> built $(ls "$OUT_DIR" | tr '\n' ' ')"
-else
-    bun build --compile --minify --sourcemap=none "$ENTRY" --outfile "$OUT_DIR/lut"
-    echo "==> built $OUT_DIR/lut"
-fi
+case "${1:-}" in
+    --all)
+        build_target bun-darwin-arm64  lut-darwin-arm64
+        build_target bun-darwin-x64    lut-darwin-x64
+        build_target bun-linux-x64     lut-linux-x64
+        build_target bun-linux-arm64   lut-linux-arm64
+        build_target bun-windows-x64   lut-windows-x64.exe
+        build_target bun-windows-arm64 lut-windows-arm64.exe
+        echo "==> built $(ls "$OUT_DIR" | tr '\n' ' ')"
+        ;;
+    '')
+        bun build --compile --minify --sourcemap=none "$ENTRY" --outfile "$OUT_DIR/lut"
+        echo "==> built $OUT_DIR/lut"
+        ;;
+    darwin-arm64|darwin-x64|linux-x64|linux-arm64)
+        build_target "bun-$1" "lut-$1"
+        ;;
+    windows-x64|windows-arm64)
+        build_target "bun-$1" "lut-$1.exe"
+        ;;
+    *)
+        echo "unknown target: $1 (expected --all or one of darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64, windows-arm64)" >&2
+        exit 1
+        ;;
+esac

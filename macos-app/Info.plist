@@ -8,10 +8,14 @@
     <string>Usage Tracker</string>
     <key>CFBundleIdentifier</key>
     <string>uk.co.versantus.usage-tracker</string>
+    <!-- Placeholders. build.sh stamps both from CLIENT_VERSION in
+         shared/version.ts, so the app and the `lut` helper always report the
+         same number and the update checker can compare either against one
+         release tag. 0.0.0 means an unstamped build. -->
     <key>CFBundleVersion</key>
-    <string>5</string>
+    <string>0.0.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.5.0</string>
+    <string>0.0.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>

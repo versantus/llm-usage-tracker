@@ -5,8 +5,11 @@
 #     tools to track, then Save runs `lut connect` (writes config + wires the
 #     Claude Code Stop hook).
 #   - Keeps the background watchers running. On macOS those are LaunchAgents,
-#     but Windows has no equivalent, so this app supervises `lut watch-<surface>`
-#     child processes itself while it's in the tray.
+#     but Windows has no equivalent, so this app supervises a single
+#     `lut watch-all --only <surfaces>` child process while it's in the tray.
+#     One process, not one per surface: each is a full embedded Bun runtime.
+#   - Check for updates: `lut update`, behind a confirmation. A daily background
+#     check only ever shows a balloon tip.
 #   - Open dashboard / Status / Quit.
 #
 # Run hidden at login via UsageTracker.vbs (see README). Requires lut.exe
@@ -90,44 +93,60 @@ function Invoke-Lut {
     $psi.RedirectStandardError = $true
     $psi.CreateNoWindow = $true
     $p = [System.Diagnostics.Process]::Start($psi)
-    # Read stderr asynchronously while draining stdout: reading them
-    # sequentially deadlocks when the child fills the stderr pipe buffer
-    # (lut writes nearly everything to stderr).
-    $errTask = $p.StandardError.ReadToEndAsync()
-    $out = $p.StandardOutput.ReadToEnd() + $errTask.Result
-    $p.WaitForExit()
-    return $out
+    try {
+        # Read stderr asynchronously while draining stdout: reading them
+        # sequentially deadlocks when the child fills the stderr pipe buffer
+        # (lut writes nearly everything to stderr).
+        $errTask = $p.StandardError.ReadToEndAsync()
+        $out = $p.StandardOutput.ReadToEnd() + $errTask.Result
+        $p.WaitForExit()
+        return $out
+    } finally {
+        # Each Process holds an OS handle until disposed; the tray runs for
+        # weeks and calls this from menu items and the settings dialog.
+        try { $p.Dispose() } catch { }
+    }
 }
 
 # --- watcher supervision --------------------------------------------------
-$script:Watchers = @{}
-function Ensure-Watchers {
-    $enabled = Get-EnabledSurfaces
-    foreach ($s in $enabled) {
-        $existing = $script:Watchers[$s]
-        if (-not $existing -or $existing.HasExited) {
-            try {
-                # Log each watcher so it's diagnosable (watchers print to stderr).
-                $errLog = Join-Path $LogDir "$s.log"
-                $outLog = Join-Path $LogDir "$s.out.log"
-                $script:Watchers[$s] = Start-Process -FilePath $script:Lut `
-                    -ArgumentList "watch-$s" -WindowStyle Hidden -PassThru `
-                    -RedirectStandardError $errLog -RedirectStandardOutput $outLog
-            } catch { }
-        }
-    }
-    # stop watchers no longer enabled
-    foreach ($s in @($script:Watchers.Keys)) {
-        if ($enabled -notcontains $s) {
-            try { if (-not $script:Watchers[$s].HasExited) { $script:Watchers[$s].Kill() } } catch { }
-            $script:Watchers.Remove($s)
-        }
-    }
+# ONE `lut watch-all` process covers every enabled surface. Each watcher is a
+# full embedded Bun runtime, so the old process-per-surface layout paid five
+# baseline heaps for work that is almost entirely idle polling — the main reason
+# the tray looked memory-hungry on Windows.
+$script:Watcher    = $null
+$script:WatcherArgs = ''
+
+function Get-WatcherArgs {
+    $enabled = @(Get-EnabledSurfaces)
+    if (-not $enabled -or $enabled.Count -eq 0) { return $null }
+    return "watch-all --only $($enabled -join ',')"
 }
+
 function Stop-Watchers {
-    foreach ($p in $script:Watchers.Values) {
-        try { if (-not $p.HasExited) { $p.Kill() } } catch { }
+    if (-not $script:Watcher) { return }
+    try { if (-not $script:Watcher.HasExited) { $script:Watcher.Kill() } } catch { }
+    # Release the OS handle. Without this every restart leaks one.
+    try { $script:Watcher.Dispose() } catch { }
+    $script:Watcher = $null
+}
+
+function Ensure-Watchers {
+    $wanted = Get-WatcherArgs
+    if (-not $wanted) { Stop-Watchers; return }
+
+    # Restart when the selection changed, otherwise only if it died.
+    if ($script:Watcher -and -not $script:Watcher.HasExited -and $wanted -eq $script:WatcherArgs) {
+        return
     }
+    Stop-Watchers
+    try {
+        $errLog = Join-Path $LogDir 'watchers.log'
+        $outLog = Join-Path $LogDir 'watchers.out.log'
+        $script:Watcher = Start-Process -FilePath $script:Lut `
+            -ArgumentList $wanted -WindowStyle Hidden -PassThru `
+            -RedirectStandardError $errLog -RedirectStandardOutput $outLog
+        $script:WatcherArgs = $wanted
+    } catch { }
 }
 
 # --- settings window ------------------------------------------------------
@@ -215,6 +234,7 @@ $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $miSettings = $menu.Items.Add('Settings...')
 $miDash     = $menu.Items.Add('Open dashboard')
 $miStatus   = $menu.Items.Add('Status')
+$miUpdate   = $menu.Items.Add('Check for updates')
 $menu.Items.Add('-') | Out-Null
 $miQuit     = $menu.Items.Add('Quit')
 $notify.ContextMenuStrip = $menu
@@ -229,18 +249,74 @@ $miDash.Add_Click({
 $miStatus.Add_Click({
     [System.Windows.Forms.MessageBox]::Show((Invoke-Lut @('status')), 'AI Carbon Tracker - status') | Out-Null
 })
+
+# --- update check ---------------------------------------------------------
+# `lut update --check --json` reports; installing is always a deliberate Yes.
+# The watcher must be stopped first: Windows cannot replace a running .exe.
+function Invoke-UpdateCheck {
+    param([bool]$Quiet)
+    $raw = Invoke-Lut @('update', '--check', '--json')
+    $info = $null
+    try { $info = $raw | ConvertFrom-Json } catch { }
+    if (-not $info) {
+        if (-not $Quiet) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Couldn't check for updates.`n`n$raw", 'AI Carbon Tracker') | Out-Null
+        }
+        return
+    }
+    if (-not $info.updateAvailable) {
+        if (-not $Quiet) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "You're up to date (version $($info.current)).", 'AI Carbon Tracker') | Out-Null
+        }
+        return
+    }
+    $answer = [System.Windows.Forms.MessageBox]::Show(
+        "Version $($info.latest) is available (you have $($info.current)).`n`nInstall it now? The tracker will restart.",
+        'AI Carbon Tracker - update available', 'YesNo', 'Information')
+    if ($answer -ne 'Yes') { return }
+
+    Stop-Watchers
+    $out = Invoke-Lut @('update', '--json')
+    $result = $null
+    try { $result = $out | ConvertFrom-Json } catch { }
+    Ensure-Watchers
+    $text = if ($result) { $result.message } else { $out }
+    [System.Windows.Forms.MessageBox]::Show($text, 'AI Carbon Tracker') | Out-Null
+}
+
+$miUpdate.Add_Click({ Invoke-UpdateCheck $false })
+
 $miQuit.Add_Click({
     Stop-Watchers
     $notify.Visible = $false
     [System.Windows.Forms.Application]::Exit()
 })
 
-# Start watchers + a 30s supervisor to restart any that died.
+# Start watchers + a 30s supervisor to restart them if they die.
 Ensure-Watchers
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 30000
 $timer.Add_Tick({ Ensure-Watchers })
 $timer.Start()
+
+# Daily update check, notify-only: a balloon tip, never a silent install.
+# `lut` caches the lookup for 24h, so this costs nothing between checks.
+$updateTimer = New-Object System.Windows.Forms.Timer
+$updateTimer.Interval = 6 * 60 * 60 * 1000   # 6h; the 24h cache does the rest
+$updateTimer.Add_Tick({
+    $raw = Invoke-Lut @('update', '--check', '--json')
+    try {
+        $info = $raw | ConvertFrom-Json
+        if ($info.updateAvailable) {
+            $notify.BalloonTipTitle = 'Usage Tracker update available'
+            $notify.BalloonTipText  = "Version $($info.latest) is ready. Right-click the tray icon > Check for updates."
+            $notify.ShowBalloonTip(10000)
+        }
+    } catch { }
+})
+$updateTimer.Start()
 
 # If never configured, pop Settings on first run.
 if (-not (Get-Config)) { Show-Settings }

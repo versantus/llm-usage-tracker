@@ -141,6 +141,27 @@ lut report --days 30  # quick usage + carbon summary
 Or open the server URL in a browser (dashboard login required) — your name
 appears in the Users table after your next session ends.
 
+## Staying up to date
+
+```bash
+lut update --check    # is there a newer release?
+lut update            # install it
+```
+
+The tracker checks once a day on its own and **only ever tells you** — it never
+installs in the background, because an update re-signs the binary and rewrites
+the background watchers, which can make macOS re-ask for permissions.
+
+You'll see the notice in whichever surface you use:
+
+- **Desktop app** — Settings → *Software update*, with a button that updates
+  both the app and the helper. A daily check runs in the background; the menu
+  bar popover shows a banner when something's waiting.
+- **Windows tray** — right-click → *Check for updates*, plus a balloon tip.
+- **Terminal** — `lut status` prints the available version.
+- **Dashboard** — the Users table flags anyone on an older tracker, so whoever
+  runs the server can see the rollout at a glance.
+
 ## Managing / uninstalling
 
 ```bash

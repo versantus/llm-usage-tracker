@@ -166,10 +166,25 @@ Only Anthropic models have validated configs; other providers are flagged
 off-site generation) and is region-dependent — tune the factors in
 `shared/carbon-calculator.ts`.
 
+### Releases & updating
+
+`shared/version.ts` holds `CLIENT_VERSION` — the single source of truth. Tag
+`v<CLIENT_VERSION>` to release; CI refuses a tag that doesn't match, builds the
+six `lut` binaries plus both Mac app architectures, and attaches them.
+`macos-app/build.sh` stamps the same number into the app's `Info.plist`, so the
+app and the helper always report one version and the update checker compares
+either against one tag.
+
+Clients check daily and **notify only** — `lut update` (or the button in the
+app / tray) is the only thing that installs. The dashboard flags users on an
+older tracker via `/api/latest-version`.
+
 ### Config & data locations
 
 - Client config: `~/.config/llm-usage-tracker/config.json`
 - Offline spool (server unreachable → events queue + retry): `~/.config/llm-usage-tracker/spool.ndjson`
+- Update-check cache (24h): `~/.config/llm-usage-tracker/update-check.json`
+- Watcher working directory (must stay empty): `~/.config/llm-usage-tracker/workdir`
 - Server DB: `~/.config/llm-usage-tracker/server.db` (override `LUT_DB_PATH`)
 - Env overrides: `LUT_SERVER_URL`, `LUT_USER_EMAIL`, `LUT_PORT`
 - Auth (fail-closed): `LUT_DASH_USER`/`LUT_DASH_PASS` (dashboard + API),

@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var store: DataStore
+    @EnvironmentObject var updater: Updater
     @StateObject private var connector = ClaudeConnector()
 
     @State private var testing = false
@@ -63,6 +64,7 @@ struct SettingsView: View {
             }
 
             claudeSection
+            updateSection
         }
         .formStyle(.grouped)
         .frame(width: 460)
@@ -131,6 +133,81 @@ struct SettingsView: View {
             }
         }
         .onAppear { connector.refreshState() }
+    }
+
+    /// Version status for the app and the `lut` helper, with a manual check and
+    /// a single button to apply whatever is behind. Checking happens daily on
+    /// its own; installing is always this button.
+    private var updateSection: some View {
+        Section("Software update") {
+            LabeledContent("This app") {
+                HStack(spacing: 6) {
+                    Text(updater.appVersion).monospacedDigit()
+                    if updater.appUpdateAvailable {
+                        Text("→ \(updater.latestVersion ?? "")")
+                            .monospacedDigit().foregroundStyle(.orange)
+                    }
+                }
+            }
+            LabeledContent("Tracker helper") {
+                HStack(spacing: 6) {
+                    Text(updater.helperVersion ?? "not installed").monospacedDigit()
+                    if updater.helperUpdateAvailable {
+                        Text("→ \(updater.latestVersion ?? "")")
+                            .monospacedDigit().foregroundStyle(.orange)
+                    }
+                }
+            }
+
+            HStack {
+                Button {
+                    Task { await updater.check() }
+                } label: {
+                    if updater.checking { ProgressView().controlSize(.small) }
+                    else { Text("Check for updates") }
+                }
+                .disabled(updater.checking || updater.applying)
+
+                if updater.needsRelaunch {
+                    Button("Relaunch") { updater.relaunch() }
+                        .buttonStyle(.borderedProminent)
+                } else if updater.updateAvailable {
+                    Button {
+                        Task { await updater.applyAll() }
+                    } label: {
+                        if updater.applying { ProgressView().controlSize(.small) }
+                        else { Text("Update to \(updater.latestVersion ?? "latest")") }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(updater.applying || updater.checking)
+                }
+
+                Spacer()
+                Link("Release notes", destination: updater.releasesPage)
+                    .font(.caption)
+            }
+
+            if updater.updateAvailable && !updater.appAssetPublished && updater.appUpdateAvailable {
+                Label("This release has no app build for your Mac's architecture — only the helper will update.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let m = updater.message {
+                Text(m).font(.caption)
+                    .foregroundStyle(m.contains("failed") ? .red : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let at = updater.lastChecked, !updater.updateAvailable {
+                Text("Up to date — last checked \(at.formatted(date: .abbreviated, time: .shortened)).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Text("Checked automatically once a day. Nothing installs until you press the button — an update re-signs the helper, which can make macOS re-ask for permissions.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { updater.refreshHelperVersion() }
     }
 
     private func runTest() async {

@@ -51,10 +51,21 @@ export interface CoworkAuditFile {
     mtimeMs: number;
 }
 
-/** Recursively find audit.jsonl files under the Cowork sessions root. */
-export function listCoworkAuditFiles(root = coworkSessionsRoot()): CoworkAuditFile[] {
+/**
+ * Recursively find audit.jsonl files under the Cowork sessions root.
+ *
+ * `sinceHours` bounds the result to recently-modified sessions (0 = all).
+ * Without it a watcher re-read every audit file it had ever seen on each start,
+ * which on a machine with hundreds of sessions is a several-hundred-megabyte
+ * spike for transcripts the server already has.
+ */
+export function listCoworkAuditFiles(
+    sinceHours = 0,
+    root = coworkSessionsRoot()
+): CoworkAuditFile[] {
     const out: CoworkAuditFile[] = [];
     if (!existsSync(root)) return out;
+    const cutoffMs = sinceHours > 0 ? Date.now() - sinceHours * 3600_000 : 0;
 
     const walk = (dir: string, depth: number): void => {
         if (depth > 6) return;
@@ -75,6 +86,7 @@ export function listCoworkAuditFiles(root = coworkSessionsRoot()): CoworkAuditFi
             if (st.isDirectory()) {
                 walk(full, depth + 1);
             } else if (name === 'audit.jsonl') {
+                if (st.mtimeMs < cutoffMs) continue;
                 out.push({
                     sessionId: basename(dirname(full)),
                     auditPath: full,

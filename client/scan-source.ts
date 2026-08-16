@@ -23,6 +23,13 @@ export interface ScanResult {
     sent: number;
 }
 
+/**
+ * Cap on the dedup map. A watcher runs for weeks, and `seen` would otherwise
+ * hold an entry for every session it ever saw. Well above any plausible
+ * scan window, so eviction never causes a re-send in practice.
+ */
+const MAX_SEEN = 2000;
+
 export async function scanSource(
     cfg: ClientConfig,
     label: string,
@@ -36,7 +43,15 @@ export async function scanSource(
     for (const it of items) {
         if (seen.get(it.sessionId) === it.mtimeMs) continue;
         const session = source.collectSession({ sessionId: it.sessionId, transcriptPath: it.path });
+        // delete-then-set makes this insertion-ordered by recency, so the
+        // eviction below drops the least recently touched session.
+        seen.delete(it.sessionId);
         seen.set(it.sessionId, it.mtimeMs);
+        while (seen.size > MAX_SEEN) {
+            const oldest = seen.keys().next();
+            if (oldest.done) break;
+            seen.delete(oldest.value);
+        }
         if (!session || session.usage.totals.totalTokens === 0) continue;
 
         const event = toIngestEvent(cfg, session);

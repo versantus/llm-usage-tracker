@@ -28,6 +28,7 @@ import {
     totals
 } from './db.ts';
 import { handleIngest } from './ingest.ts';
+import { latestVersion } from './latest-version.ts';
 import { sseResponse } from './sse.ts';
 
 const PORT = Number(process.env.LUT_PORT) || 4317;
@@ -150,6 +151,11 @@ const server = Bun.serve({
                 byUser: summaryByUser(db, days),
                 byProvider: summaryByProvider(db, days)
             });
+        }
+        // Newest published tracker release, so the dashboard can flag stale
+        // clients. Hourly server-side cache — see latest-version.ts.
+        if (pathname === '/api/latest-version') {
+            return Response.json(await latestVersion());
         }
         if (pathname === '/api/by-model') {
             return Response.json(summaryByModel(db, daysParam(url)));

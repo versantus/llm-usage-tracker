@@ -5,6 +5,7 @@ import SwiftUI
 // `.task` on its view would not run until the user first opens it).
 @MainActor let appSettings = AppSettings()
 @MainActor let appStore = DataStore(settings: appSettings)
+@MainActor let appUpdater = Updater()
 
 @main
 struct UsageTrackerApp: App {
@@ -17,6 +18,7 @@ struct UsageTrackerApp: App {
             DashboardView()
                 .environmentObject(appStore)
                 .environmentObject(appSettings)
+                .environmentObject(appUpdater)
         }
         .defaultSize(width: 980, height: 720)
 
@@ -25,6 +27,7 @@ struct UsageTrackerApp: App {
             MenuBarView()
                 .environmentObject(appStore)
                 .environmentObject(appSettings)
+                .environmentObject(appUpdater)
         } label: {
             Image(systemName: "leaf.fill")
         }
@@ -37,6 +40,7 @@ struct UsageTrackerApp: App {
             SettingsView()
                 .environmentObject(appStore)
                 .environmentObject(appSettings)
+                .environmentObject(appUpdater)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
@@ -49,6 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // our dark backgrounds, even when macOS is in Light mode. (SwiftUI's
         // .preferredColorScheme didn't reliably reach the window content.)
         NSApp.appearance = NSAppearance(named: .darkAqua)
-        MainActor.assumeIsolated { appStore.start() }
+        MainActor.assumeIsolated {
+            appStore.start()
+            appUpdater.start()
+        }
     }
 }
