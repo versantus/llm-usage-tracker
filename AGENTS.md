@@ -68,6 +68,22 @@ Three parts share a vendored core:
   user already granted. `ClaudeConnector.installBinary()` signs the same way,
   and skips the copy when the installed `lut` is newer — it can self-update, so
   an unconditional copy would downgrade it on every Connect click.
+- **One watcher service per machine, never one per surface.** Each watcher is a
+  full embedded Bun runtime, so five of them cost five baseline heaps for idle
+  polling (measured 132MB → 43MB). `client/watcher-service.ts` owns it: a macOS
+  LaunchAgent or a Linux systemd user unit running `lut watch-all --only a,b`,
+  with the per-surface on/off switch in `~/.config/llm-usage-tracker/
+  watchers.json`. Windows is the exception — the tray supervises the same
+  `watch-all` process itself. `migrateLegacyAgents()` collapses the old
+  per-surface plists on connect; don't remove it until every client is past 1.8.
+- **Transcripts are streamed, and parsed ONCE per line.** `client/line-reader.ts`
+  yields lines from a 1 MiB buffer instead of `readFileSync().split('\n')`, and
+  `scanTranscript(lines, onEntry)` fuses usage records, both timestamps and the
+  work-type vector into a single `JSON.parse` per line (it used to be three).
+  Measured 793MB → 330MB peak over a 700MB corpus, at the same wall time — the
+  chunk size matters, 64 KiB was 4x slower than the code it replaced. Anything
+  consuming a transcript must take `Iterable<string>` and walk it once: a
+  streaming reader has no index and cannot be re-iterated.
 - **Watcher ticks are non-reentrant, and scans are windowed.** Two rules that
   cost hundreds of MB when broken (measured 601MB peak → 46MB):
   - `startWatcher`'s tick holds a `ticking` flag. A cycle can outlast its

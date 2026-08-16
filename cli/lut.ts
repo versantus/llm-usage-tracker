@@ -7,14 +7,17 @@
  *   lut wire|unwire  (re)wire / remove the Stop hook
  *   lut <surface> enable|disable|status     surface in: codex cowork copilot gemini ollama
  *   lut scan-<surface> [--hours N|--all]    one-off report
- *   lut watch-<surface> [--interval S]      continuous watcher (LaunchAgent runs this)
- *   lut watch-all [--interval S]            all detected surfaces in one process
+ *   lut watch-<surface> [--interval S]      one surface, in the foreground
+ *   lut watch-all [--interval S] [--only a,b]   every surface in ONE process —
+ *                                           this is what the service runs
  *   lut cursor-pull  pull Cursor team usage via the Admin API (server-side)
  *   lut update [--check]                    self-update from the latest release
  *   lut status | report | version
  *
  * Surfaces with no Stop-style hook (codex/cowork/copilot/gemini/ollama) are
- * tracked by background watchers; the hook needs no bun/npx at runtime.
+ * tracked by background watchers, supervised as ONE service per machine (macOS
+ * LaunchAgent / Linux systemd user unit / the Windows tray) — see
+ * client/watcher-service.ts. The hook itself needs no bun/npx at runtime.
  */
 
 import {
@@ -33,7 +36,15 @@ import { launchGui } from '../client/gui.ts';
 import { windowsFirstRun } from '../client/windows-setup.ts';
 import { stopHookMain } from '../client/hooks/run-stop.ts';
 import { runHook } from '../client/hooks/stdin.ts';
-import { agentEnabled, disableAgent, enableAgent } from '../client/launch-agent.ts';
+import {
+    enabledSurfaces,
+    installService,
+    migrateLegacyAgents,
+    removeService,
+    serviceRunning,
+    serviceSupported,
+    setEnabledSurfaces
+} from '../client/watcher-service.ts';
 import { flushSpool } from '../client/post.ts';
 import { ask } from '../client/prompt.ts';
 import { scanSource, type ScanItem } from '../client/scan-source.ts';
@@ -239,16 +250,28 @@ async function cmdConnect(): Promise<void> {
 
     if (!has('no-hook')) console.error(`✓ Claude Code hook: ${wireClaudeCodeHook()}`);
 
-    // Auto-enable a watcher for each detected surface (unless --no-<surface>).
+    // Collapse any pre-1.8 per-surface LaunchAgents into the single service.
+    const legacy = migrateLegacyAgents();
+    if (legacy.length) console.error(`  migrated ${legacy.length} per-surface watcher(s) to one service`);
+
+    // Enable a watcher for each detected surface (unless --no-<surface>), then
+    // run them all from ONE service process.
+    const wanted = new Set(enabledSurfaces().concat(legacy));
     for (const name of SURFACE_NAMES) {
         const def = SURFACES[name];
-        if (has(`no-${name}`)) continue;
+        if (has(`no-${name}`)) {
+            wanted.delete(name);
+            continue;
+        }
         if (def.gate && !def.gate(cfg)) continue;
         if (!def.available()) continue;
         if (def.onEnable) console.error(`  ${name}: ${def.onEnable()}`);
-        console.error(`✓ ${name}: ${enableAgent(name, process.execPath, `watch-${name}`)}`);
+        wanted.add(name);
         await scanSource(cfg, name, def.items(def.backfillHours), def.source, { quiet: true });
     }
+    // Never carry forward a surface this build doesn't know about.
+    setEnabledSurfaces([...wanted].filter((n) => SURFACE_NAMES.includes(n)));
+    console.error(`✓ watchers: ${installService(process.execPath)}`);
 
     await flushSpool(cfg.serverUrl, cfg.ingestToken);
     console.error('\nDone. Claude Code reports on each Stop; other tools via their watchers.');
@@ -264,13 +287,17 @@ function windowsTraySurfaces(): Set<string> | null {
     }
 }
 
+/** Whether a surface is switched on in the watcher state file. */
+function surfaceOn(name: string): boolean {
+    return enabledSurfaces().includes(name);
+}
+
 function surfaceState(name: string): string {
     const def = SURFACES[name];
     if (!def.available()) return 'not detected';
-    if (process.platform === 'darwin') {
-        return agentEnabled(name)
-            ? 'watcher enabled'
-            : `detected, watcher OFF (run \`lut ${name} enable\`)`;
+    if (serviceSupported()) {
+        if (!surfaceOn(name)) return `detected, watcher OFF (run \`lut ${name} enable\`)`;
+        return serviceRunning() ? 'watcher enabled' : 'enabled, but the watcher service is NOT running';
     }
     if (process.platform === 'win32') {
         // Windows has no LaunchAgent — the tray (`lut gui`) supervises watchers.
@@ -278,7 +305,8 @@ function surfaceState(name: string): string {
         if (tray && !tray.has(name)) return 'detected, watcher OFF (enable it in the tray settings)';
         return 'detected — watched while the tray runs (`lut gui`)';
     }
-    return `detected — run \`lut watch-${name}\` under your service manager`;
+    // Linux without a systemd user session, or anything else exotic.
+    return 'detected — run `lut watch-all` under your own service manager';
 }
 
 async function cmdStatus(): Promise<void> {
@@ -302,6 +330,18 @@ async function cmdStatus(): Promise<void> {
     }
     console.log(`  hook:      ${isHookWired() ? 'wired' : 'NOT wired'}  (${settingsPath()})`);
     for (const name of SURFACE_NAMES) console.log(`  ${(name + ':').padEnd(10)} ${surfaceState(name)}`);
+    if (serviceSupported()) {
+        const on = enabledSurfaces();
+        console.log(
+            `  watchers:  ${
+                !on.length
+                    ? 'none enabled'
+                    : serviceRunning()
+                      ? `one service running (${on.join(', ')})`
+                      : `NOT running (enabled: ${on.join(', ')}) — run \`lut connect\``
+            }`
+        );
+    }
     console.log(`  binary:    ${process.execPath}`);
 
     // Cached lookup only — `lut status` shouldn't wait on GitHub.
@@ -411,13 +451,20 @@ function cmdSurface(name: string): void {
     const def = SURFACES[name];
     const sub = ARGS[1];
     switch (sub) {
-        case 'enable':
+        case 'enable': {
             if (def.onEnable) console.error(`  ${def.onEnable()}`);
-            console.error(enableAgent(name, process.execPath, `watch-${name}`));
+            migrateLegacyAgents();
+            setEnabledSurfaces([...new Set([...enabledSurfaces(), name])]);
+            console.error(installService(process.execPath));
             break;
-        case 'disable':
-            console.error(disableAgent(name));
+        }
+        case 'disable': {
+            const left = enabledSurfaces().filter((s) => s !== name);
+            setEnabledSurfaces(left);
+            // installService() removes the service outright when nothing is left.
+            console.error(left.length ? installService(process.execPath) : removeService());
             break;
+        }
         case 'status':
             console.error(`${name}: ${surfaceState(name)}`);
             break;

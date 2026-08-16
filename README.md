@@ -166,6 +166,15 @@ Only Anthropic models have validated configs; other providers are flagged
 off-site generation) and is region-dependent — tune the factors in
 `shared/carbon-calculator.ts`.
 
+### Background watchers
+
+Surfaces with no Stop-style hook are polled by **one** service per machine
+running `lut watch-all --only <surfaces>` — a LaunchAgent on macOS, a systemd
+*user* unit on Linux, and the tray process on Windows. Which surfaces are on
+lives in `~/.config/llm-usage-tracker/watchers.json`; `lut <surface>
+enable|disable` edits that and reloads the service. On Linux, run
+`sudo loginctl enable-linger $USER` or the unit stops when you log out.
+
 ### Releases & updating
 
 `shared/version.ts` holds `CLIENT_VERSION` — the single source of truth. Tag

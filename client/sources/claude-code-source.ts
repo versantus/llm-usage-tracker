@@ -6,38 +6,28 @@
  * Resolves agent-* session ids to their parent UUID, matching carbonlog.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
-import {
-    classifyHeuristic,
-    extractSessionFeatures,
-    mergeFeatures
-} from '../../shared/categorizer.ts';
+import { classifyHeuristic, createFeatureAccumulator } from '../../shared/categorizer.ts';
 import {
     aggregate,
     extractParentSessionIdFromLines,
-    getFirstTimestamp,
-    getLastTimestamp,
     isAgentSessionId,
-    parseTranscriptLines
+    scanTranscript
 } from '../../shared/transcript-parser.ts';
-import type { CollectedSession, TokenUsageRecord } from '../../shared/types.ts';
+import type { CollectedSession } from '../../shared/types.ts';
+import { eachLine } from '../line-reader.ts';
 import type { Source } from './source.ts';
 
 function claudeProjectsDir(): string {
     return join(homedir(), '.claude', 'projects');
 }
 
-function readLines(file: string): string[] {
-    let text: string;
-    try {
-        text = readFileSync(file, 'utf-8');
-    } catch {
-        return []; // missing or unreadable
-    }
-    return text.split('\n').filter((l) => l.trim());
+/** Stream a transcript's lines. See client/line-reader.ts for why. */
+function lines(file: string): Iterable<string> {
+    return eachLine(file);
 }
 
 /** Find <session-id>.jsonl, optionally hinted by cwd's encoded dir. */
@@ -72,19 +62,24 @@ function resolve(sessionId: string, cwd?: string): { sessionId: string; path: st
     }
     const agentPath = findTranscriptPath(sessionId, cwd);
     if (!agentPath) return null;
-    const parentId = extractParentSessionIdFromLines(readLines(agentPath));
+    const parentId = extractParentSessionIdFromLines(lines(agentPath));
     if (!parentId) return null;
     const parentPath = findTranscriptPath(parentId, cwd);
     return parentPath ? { sessionId: parentId, path: parentPath } : null;
 }
 
-function subagentLineSets(transcriptPath: string): string[][] {
+/**
+ * Paths of this session's subagent transcripts. Returns paths, not contents:
+ * loading every subagent transcript up front stacked them all in memory
+ * alongside the parent.
+ */
+function subagentPaths(transcriptPath: string): string[] {
     const subDir = join(transcriptPath.replace(/\.jsonl$/, ''), 'subagents');
     if (!existsSync(subDir)) return [];
     try {
         return readdirSync(subDir)
             .filter((f) => f.startsWith('agent-') && f.endsWith('.jsonl'))
-            .map((f) => readLines(join(subDir, f)));
+            .map((f) => join(subDir, f));
     } catch {
         return [];
     }
@@ -146,17 +141,22 @@ export const claudeCodeSource: Source = {
             }
         }
 
-        const lines = readLines(path);
-        const subagents = subagentLineSets(path);
-        const records = [
-            ...parseTranscriptLines(lines),
-            ...subagents.flatMap((ls) => parseTranscriptLines(ls))
-        ];
-        const usage = aggregate(records);
+        const subagents = subagentPaths(path);
 
-        let features = extractSessionFeatures(lines);
-        for (const ls of subagents) features = mergeFeatures(features, extractSessionFeatures(ls));
-        const category = classifyHeuristic(features);
+        // ONE streaming pass per file, feeding both consumers from a single
+        // JSON.parse per line: usage records, both timestamps, and the
+        // work-type feature vector. Nothing but the running totals is retained,
+        // so a 300MB transcript costs the same as a small one.
+        const featureAcc = createFeatureAccumulator();
+        const scan = scanTranscript(lines(path), featureAcc.push);
+        const records = scan.records;
+        for (const sub of subagents) {
+            const subAcc = createFeatureAccumulator();
+            records.push(...scanTranscript(lines(sub), subAcc.push).records);
+            featureAcc.merge(subAcc.result());
+        }
+        const usage = aggregate(records);
+        const category = classifyHeuristic(featureAcc.result());
 
         let stat: ReturnType<typeof statSync>;
         try {
@@ -164,8 +164,8 @@ export const claudeCodeSource: Source = {
         } catch {
             return null; // transcript removed mid-read — skip
         }
-        const startedAt = getFirstTimestamp(lines) ?? stat.birthtime.toISOString();
-        const updatedAt = getLastTimestamp(lines) ?? stat.mtime.toISOString();
+        const startedAt = scan.firstTimestamp ?? stat.birthtime.toISOString();
+        const updatedAt = scan.lastTimestamp ?? stat.mtime.toISOString();
 
         return {
             provider: 'anthropic',

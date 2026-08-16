@@ -8,7 +8,7 @@
  * update checker uses, so the CLI, the Mac app and the server all agree on what
  * "newer" means. Zero-dependency (see AGENTS.md) — plain string maths only.
  */
-export const CLIENT_VERSION = '1.7.0';
+export const CLIENT_VERSION = '1.8.0';
 
 /** GitHub repo the update checker pulls releases from. */
 export const RELEASES_REPO = 'versantus/llm-usage-tracker';

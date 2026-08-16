@@ -15,6 +15,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+
+import { eachChunk } from '../line-reader.ts';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -87,34 +89,53 @@ export function enableGeminiTelemetry(): string {
 // --- OTLP parsing ---------------------------------------------------------
 
 /** Extract top-level balanced JSON objects from a concatenated/NDJSON stream. */
-function* jsonObjects(text: string): Generator<any> {
+/**
+ * Scan a stream of text chunks for top-level JSON objects.
+ *
+ * Takes chunks rather than one string so the telemetry outfile — which is
+ * append-only and never rotated, so it grows without bound — never has to be
+ * resident in full. Brace depth, string state and the partially-built object
+ * all carry across chunk boundaries; only the object currently being assembled
+ * is buffered.
+ */
+function* jsonObjects(chunks: Iterable<string>): Generator<any> {
     let depth = 0;
-    let start = -1;
     let inStr = false;
     let esc = false;
-    for (let i = 0; i < text.length; i++) {
-        const c = text[i];
-        if (inStr) {
-            if (esc) esc = false;
-            else if (c === '\\') esc = true;
-            else if (c === '"') inStr = false;
-            continue;
-        }
-        if (c === '"') inStr = true;
-        else if (c === '{') {
-            if (depth === 0) start = i;
-            depth++;
-        } else if (c === '}') {
-            depth--;
-            if (depth === 0 && start >= 0) {
-                try {
-                    yield JSON.parse(text.slice(start, i + 1));
-                } catch {
-                    // skip malformed
+    let carry = ''; // text of the in-progress object from earlier chunks
+
+    for (const text of chunks) {
+        // Mid-object at the chunk boundary: the whole chunk belongs to it.
+        let start = depth > 0 ? 0 : -1;
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (inStr) {
+                if (esc) esc = false;
+                else if (c === '\\') esc = true;
+                else if (c === '"') inStr = false;
+                continue;
+            }
+            if (c === '"') inStr = true;
+            else if (c === '{') {
+                if (depth === 0) {
+                    start = i;
+                    carry = '';
                 }
-                start = -1;
+                depth++;
+            } else if (c === '}') {
+                depth--;
+                if (depth === 0 && start >= 0) {
+                    try {
+                        yield JSON.parse(carry + text.slice(start, i + 1));
+                    } catch {
+                        // skip malformed
+                    }
+                    carry = '';
+                    start = -1;
+                }
             }
         }
+        if (depth > 0) carry += start >= 0 ? text.slice(start) : text;
     }
 }
 
@@ -161,7 +182,7 @@ function attrValue(attrs: any, key: string): string | undefined {
 }
 
 /** Parse the telemetry file into per-session aggregates (cumulative -> max). */
-export function parseGeminiTelemetry(text: string): Map<string, Agg> {
+export function parseGeminiTelemetry(chunks: Iterable<string>): Map<string, Agg> {
     const sessions = new Map<string, Agg>();
     // Vendor metric uses `type`/`model` attributes; gemini-cli and its successor
     // Antigravity CLI share the same OTEL telemetry. The GenAI standard metric
@@ -169,7 +190,7 @@ export function parseGeminiTelemetry(text: string): Map<string, Agg> {
     const VENDOR_METRICS = ['gemini_cli.token.usage', 'antigravity_cli.token.usage'];
     const STD = 'gen_ai.client.token.usage';
 
-    for (const payload of jsonObjects(text)) {
+    for (const payload of jsonObjects(chunks)) {
         const resources = Array.isArray(payload?.resourceMetrics)
             ? payload.resourceMetrics
             : [payload];
@@ -213,17 +234,28 @@ export interface GeminiSession {
     agg: Agg;
 }
 
-/** All Gemini sessions found in the telemetry outfile. */
+/**
+ * All Gemini sessions found in the telemetry outfile.
+ *
+ * Memoised on the file's mtime. Unlike every other source there is no file per
+ * session — one outfile holds them all — so collectSession() has to look the
+ * session up in the whole parse. Without this cache a watcher tick parsed the
+ * entire file once per session it had ever seen.
+ */
+let telemetryCache: { mtimeMs: number; sessions: GeminiSession[] } | null = null;
+
 export function listGeminiSessions(): GeminiSession[] {
     const file = geminiTelemetryOutfile();
     if (!existsSync(file)) return [];
-    let text: string;
-    try {
-        text = readFileSync(file, 'utf-8');
-    } catch {
-        return [];
-    }
-    return [...parseGeminiTelemetry(text)].map(([sessionId, agg]) => ({ sessionId, agg }));
+    const mtimeMs = geminiTelemetryMtime();
+    if (telemetryCache && telemetryCache.mtimeMs === mtimeMs) return telemetryCache.sessions;
+
+    const sessions = [...parseGeminiTelemetry(eachChunk(file))].map(([sessionId, agg]) => ({
+        sessionId,
+        agg
+    }));
+    telemetryCache = { mtimeMs, sessions };
+    return sessions;
 }
 
 /** mtime of the telemetry file (so watchers can skip when unchanged). */

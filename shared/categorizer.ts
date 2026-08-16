@@ -90,104 +90,127 @@ function bashVerb(command: unknown): { first: string; second: string } {
 }
 
 /** Reduce transcript JSONL lines to the numeric feature vector. */
-export function extractSessionFeatures(lines: string[]): SessionFeatures {
+/**
+ * Feature accumulator over ALREADY-PARSED transcript entries.
+ *
+ * Exposed separately so a collector can share one JSON.parse per line with the
+ * usage scan. Parsing each line once for the timestamp, once for usage and once
+ * for features was the dominant allocation cost on large transcripts.
+ */
+export function createFeatureAccumulator() {
     const f: SessionFeatures = { ...EMPTY_FEATURES };
     let editSinceTest = false;
     let lastPermissionMode = '';
 
-    for (const line of lines) {
-        let entry: any;
-        try {
-            entry = JSON.parse(line);
-        } catch {
-            continue;
-        }
-        if (!entry || typeof entry !== 'object') continue;
+    return {
+        push(entry: any): void {
+            if (!entry || typeof entry !== 'object') return;
 
-        // Plan-mode signals: transitions into plan mode + plan attachments.
-        const pm = typeof entry.permissionMode === 'string' ? entry.permissionMode : '';
-        if (pm) {
-            if (pm === 'plan' && lastPermissionMode !== 'plan') f.planSignals++;
-            lastPermissionMode = pm;
-        }
-        if (entry.type === 'attachment') {
-            const at = entry.attachment?.type;
-            if (at === 'plan_mode' || at === 'plan_mode_exit') f.planSignals++;
-            continue;
-        }
-
-        if (entry.type === 'system') {
-            if (entry.subtype === 'turn_duration') {
-                f.turns++;
-                if (typeof entry.durationMs === 'number' && entry.durationMs > 0) {
-                    f.durationMs += entry.durationMs;
-                }
+            // Plan-mode signals: transitions into plan mode + plan attachments.
+            const pm = typeof entry.permissionMode === 'string' ? entry.permissionMode : '';
+            if (pm) {
+                if (pm === 'plan' && lastPermissionMode !== 'plan') f.planSignals++;
+                lastPermissionMode = pm;
             }
-            continue;
-        }
-
-        // Patch churn: hunk line-counts from tool results (user lines carry them).
-        const patch = entry.toolUseResult?.structuredPatch;
-        if (Array.isArray(patch)) {
-            for (const hunk of patch) {
-                if (typeof hunk?.newLines === 'number') f.linesAdded += hunk.newLines;
-                if (typeof hunk?.oldLines === 'number') f.linesDeleted += hunk.oldLines;
+            if (entry.type === 'attachment') {
+                const at = entry.attachment?.type;
+                if (at === 'plan_mode' || at === 'plan_mode_exit') f.planSignals++;
+                return;
             }
-        }
 
-        if (entry.type !== 'assistant') continue;
-        const content = entry.message?.content;
-        if (!Array.isArray(content)) continue;
-
-        for (const block of content) {
-            if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue;
-            const name = block.name;
-            const input = block.input ?? {};
-
-            if (EDIT_TOOLS.has(name)) {
-                const e = ext(input.file_path ?? input.notebook_path ?? input.path);
-                if (DOC_EXTS.has(e)) f.docEdits++;
-                else if (CONFIG_EXTS.has(e)) f.configEdits++;
-                else f.codeEdits++;
-                editSinceTest = true;
-            } else if (READ_TOOLS.has(name)) {
-                f.reads++;
-            } else if (name === 'Bash') {
-                f.bashTotal++;
-                const { first, second } = bashVerb(input.command);
-                const isTest =
-                    TEST_RUNNERS.has(first) ||
-                    (PKG_RUNNERS.has(first) && /test/.test(second)) ||
-                    (first === 'bun' && second === 'test');
-                if (isTest) {
-                    f.testRuns++;
-                    if (editSinceTest) {
-                        f.editTestCycles++;
-                        editSinceTest = false;
+            if (entry.type === 'system') {
+                if (entry.subtype === 'turn_duration') {
+                    f.turns++;
+                    if (typeof entry.durationMs === 'number' && entry.durationMs > 0) {
+                        f.durationMs += entry.durationMs;
                     }
-                } else if (first === 'git' || first === 'gh') {
-                    f.gitOps++;
-                } else if (
-                    BUILD_TOOLS.has(first) ||
-                    (PKG_RUNNERS.has(first) && /^(build|compile)/.test(second)) ||
-                    (first === 'docker' && second === 'build')
-                ) {
-                    f.buildRuns++;
                 }
-            } else if (WEB_TOOLS.has(name)) {
-                f.webLookups++;
-            } else if (PLAN_TOOLS.has(name)) {
-                f.planSignals++;
-            } else if (TASK_TOOLS.has(name)) {
-                f.taskMgmt++;
-            } else if (AGENT_TOOLS.has(name)) {
-                f.agentSpawns++;
-            } else if (name.startsWith('mcp__')) {
-                f.mcpCalls++;
+                return;
             }
+
+            // Patch churn: hunk line-counts from tool results (user lines carry them).
+            const patch = entry.toolUseResult?.structuredPatch;
+            if (Array.isArray(patch)) {
+                for (const hunk of patch) {
+                    if (typeof hunk?.newLines === 'number') f.linesAdded += hunk.newLines;
+                    if (typeof hunk?.oldLines === 'number') f.linesDeleted += hunk.oldLines;
+                }
+            }
+
+            if (entry.type !== 'assistant') return;
+            const content = entry.message?.content;
+            if (!Array.isArray(content)) return;
+
+            for (const block of content) {
+                if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue;
+                const name = block.name;
+                const input = block.input ?? {};
+
+                if (EDIT_TOOLS.has(name)) {
+                    const e = ext(input.file_path ?? input.notebook_path ?? input.path);
+                    if (DOC_EXTS.has(e)) f.docEdits++;
+                    else if (CONFIG_EXTS.has(e)) f.configEdits++;
+                    else f.codeEdits++;
+                    editSinceTest = true;
+                } else if (READ_TOOLS.has(name)) {
+                    f.reads++;
+                } else if (name === 'Bash') {
+                    f.bashTotal++;
+                    const { first, second } = bashVerb(input.command);
+                    const isTest =
+                        TEST_RUNNERS.has(first) ||
+                        (PKG_RUNNERS.has(first) && /test/.test(second)) ||
+                        (first === 'bun' && second === 'test');
+                    if (isTest) {
+                        f.testRuns++;
+                        if (editSinceTest) {
+                            f.editTestCycles++;
+                            editSinceTest = false;
+                        }
+                    } else if (first === 'git' || first === 'gh') {
+                        f.gitOps++;
+                    } else if (
+                        BUILD_TOOLS.has(first) ||
+                        (PKG_RUNNERS.has(first) && /^(build|compile)/.test(second)) ||
+                        (first === 'docker' && second === 'build')
+                    ) {
+                        f.buildRuns++;
+                    }
+                } else if (WEB_TOOLS.has(name)) {
+                    f.webLookups++;
+                } else if (PLAN_TOOLS.has(name)) {
+                    f.planSignals++;
+                } else if (TASK_TOOLS.has(name)) {
+                    f.taskMgmt++;
+                } else if (AGENT_TOOLS.has(name)) {
+                    f.agentSpawns++;
+                } else if (name.startsWith('mcp__')) {
+                    f.mcpCalls++;
+                }
+            }
+        },
+        /** Fold another vector in (subagent transcripts into the parent). */
+        merge(other: SessionFeatures): void {
+            for (const k of Object.keys(EMPTY_FEATURES) as (keyof SessionFeatures)[]) {
+                f[k] = f[k] + other[k];
+            }
+        },
+        result(): SessionFeatures {
+            return f;
+        }
+    };
+}
+
+export function extractSessionFeatures(lines: Iterable<string>): SessionFeatures {
+    const acc = createFeatureAccumulator();
+    for (const line of lines) {
+        try {
+            acc.push(JSON.parse(line));
+        } catch {
+            // skip malformed lines
         }
     }
-    return f;
+    return acc.result();
 }
 
 /** Sum two vectors (fold subagent transcripts into the parent session). */
@@ -256,7 +279,7 @@ export function classifyHeuristic(f: SessionFeatures): CategoryResult {
 }
 
 /** Convenience: lines -> classification in one call. */
-export function categorizeLines(lines: string[], extra?: SessionFeatures): CategoryResult {
+export function categorizeLines(lines: Iterable<string>, extra?: SessionFeatures): CategoryResult {
     let f = extractSessionFeatures(lines);
     if (extra) f = mergeFeatures(f, extra);
     return classifyHeuristic(f);

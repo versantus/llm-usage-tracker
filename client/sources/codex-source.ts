@@ -13,11 +13,12 @@
  * hook we can rely on, so the watcher (watch-codex.ts) polls these files.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import type { CollectedSession, SessionUsage } from '../../shared/types.ts';
+import { eachLine } from '../line-reader.ts';
 import type { Source } from './source.ts';
 
 export function codexSessionsRoot(): string {
@@ -92,12 +93,9 @@ export const codexSource: Source = {
         const path = transcriptPath;
         if (!path || !existsSync(path)) return null;
 
-        let lines: string[];
-        try {
-            lines = readFileSync(path, 'utf-8').split('\n').filter((l) => l.trim());
-        } catch {
-            return null;
-        }
+        // Streamed, not slurped: rollouts reach hundreds of MB and this runs on
+        // a watcher timer. Single forward pass, so a generator is a drop-in.
+        const lines = eachLine(path);
 
         let id = sessionId;
         let cwd = '';

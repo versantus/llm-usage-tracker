@@ -24,7 +24,7 @@ import {
     isNewerVersion
 } from '../shared/version.ts';
 import { configDir } from './config.ts';
-import { kickstartAgent, listEnabledAgents } from './launch-agent.ts';
+import { restartService } from './watcher-service.ts';
 
 /** How long a release lookup stays fresh. "Check daily" lives here. */
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -172,7 +172,7 @@ export interface ApplyResult {
     from: string;
     to: string | null;
     message: string;
-    /** Watcher LaunchAgents restarted onto the new binary. */
+    /** Services restarted onto the new binary (empty if none was running). */
     restarted: string[];
 }
 
@@ -291,12 +291,12 @@ export async function applyUpdate(
     }
     log(`==> installed ${status.latest} to ${dest}`);
 
-    // Watchers hold the old code in memory until restarted.
+    // The watcher service holds the old code in memory until restarted.
     const restarted: string[] = [];
-    for (const suffix of listEnabledAgents()) {
-        if (kickstartAgent(suffix)) restarted.push(suffix);
+    if (restartService()) {
+        restarted.push('watchers');
+        log('==> restarted the watcher service');
     }
-    if (restarted.length) log(`==> restarted watchers: ${restarted.join(', ')}`);
 
     return {
         ok: true,

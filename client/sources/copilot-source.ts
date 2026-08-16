@@ -9,11 +9,12 @@
  * One file = one session; we report absolute totals (server upserts).
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import type { CollectedSession, Provider, SessionUsage } from '../../shared/types.ts';
+import { eachLine } from '../line-reader.ts';
 import type { Source } from './source.ts';
 
 /** VS Code (+ Insiders) workspaceStorage roots per platform. */
@@ -119,53 +120,58 @@ function inferProvider(model: string): Provider {
 }
 
 /** Pick the dominant model, mirroring agentcat's tool-call-id heuristic. */
-function inferModel(events: any[]): string {
+/**
+ * Incremental model inference. Events are fed in one at a time so the caller
+ * can stream the transcript instead of materialising every parsed event first.
+ */
+function modelInferrer() {
     const counts: Record<string, number> = {};
     const bump = (k: string, n: number) => (counts[k] = (counts[k] || 0) + n);
-    for (const e of events) {
-        const data = (e && typeof e.data === 'object' && e.data) || {};
-        if (typeof data.model === 'string' && data.model) bump(data.model, 100);
-        if (e?.type !== 'assistant.message' || !Array.isArray(data.toolRequests)) continue;
-        for (const tool of data.toolRequests) {
-            const id = String(tool?.toolCallId || '');
-            if (/^toolu(_bdrk_|_vrtx_|se_|_)/.test(id) || id.startsWith('tooluse_')) bump('copilot-anthropic-auto', 1);
-            else if (id.startsWith('call_')) bump('copilot-openai-auto', 1);
+    return {
+        push(e: any, data: any) {
+            if (typeof data.model === 'string' && data.model) bump(data.model, 100);
+            if (e?.type !== 'assistant.message' || !Array.isArray(data.toolRequests)) return;
+            for (const tool of data.toolRequests) {
+                const id = String(tool?.toolCallId || '');
+                if (/^toolu(_bdrk_|_vrtx_|se_|_)/.test(id) || id.startsWith('tooluse_')) {
+                    bump('copilot-anthropic-auto', 1);
+                } else if (id.startsWith('call_')) {
+                    bump('copilot-openai-auto', 1);
+                }
+            }
+        },
+        result(): string {
+            const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+            return top ? top[0] : 'copilot-auto';
         }
-    }
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-    return top ? top[0] : 'copilot-auto';
+    };
 }
 
 export const copilotSource: Source = {
     collectSession({ sessionId, transcriptPath }) {
         if (!transcriptPath || !existsSync(transcriptPath)) return null;
-        let events: any[];
-        try {
-            events = readFileSync(transcriptPath, 'utf-8')
-                .split('\n')
-                .filter((l) => l.trim())
-                .map((l) => {
-                    try {
-                        return JSON.parse(l);
-                    } catch {
-                        return null;
-                    }
-                })
-                .filter(Boolean);
-        } catch {
-            return null;
-        }
-        if (!events.length) return null;
 
-        const model = inferModel(events);
+        // One streaming pass: model inference and token accumulation share the
+        // walk, so no array of parsed events is ever held (see line-reader.ts).
+        const inferrer = modelInferrer();
+        let seenAny = false;
         let inputTokens = 0;
         let outputTokens = 0;
         let pendingInput = 0;
         let firstTs = '';
         let lastTs = '';
 
-        for (const e of events) {
-            const data = (e && typeof e.data === 'object' && e.data) || {};
+        for (const line of eachLine(transcriptPath)) {
+            let e: any;
+            try {
+                e = JSON.parse(line);
+            } catch {
+                continue;
+            }
+            if (!e) continue;
+            seenAny = true;
+            const data = (typeof e.data === 'object' && e.data) || {};
+            inferrer.push(e, data);
             if (typeof e.timestamp === 'string') {
                 if (!firstTs) firstTs = e.timestamp;
                 lastTs = e.timestamp;
@@ -179,6 +185,8 @@ export const copilotSource: Source = {
                 pendingInput = 0;
             }
         }
+        if (!seenAny) return null;
+        const model = inferrer.result();
 
         const totalTokens = inputTokens + outputTokens;
         if (totalTokens === 0) return null;
