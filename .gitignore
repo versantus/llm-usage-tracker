@@ -3,6 +3,7 @@ node_modules/
 # Swift / macOS app build artifacts
 macos-app/.build/
 macos-app/UsageTracker.app/
+macos-app/UsageTracker-macos-*.zip
 
 # Compiled `lut` CLI binaries
 dist/

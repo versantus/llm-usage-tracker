@@ -5,6 +5,7 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var store: DataStore
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var updater: Updater
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -18,6 +19,11 @@ struct MenuBarView: View {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 24)
             default:
                 content
+            }
+
+            if updater.updateAvailable {
+                Divider()
+                updateBanner
             }
 
             Divider()
@@ -112,6 +118,25 @@ struct MenuBarView: View {
             .help("Quit")
         }
         .buttonStyle(.borderless)
+    }
+
+    /// Notify-only nudge: says a release exists and routes to the button that
+    /// installs it. Nothing updates from here.
+    private var updateBanner: some View {
+        Button { showSettings() } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Version \(updater.latestVersion ?? "") available")
+                        .font(.caption).fontWeight(.medium)
+                    Text("Install it in Settings")
+                        .font(.caption2).foregroundStyle(Theme.muted)
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func showSettings() { show("settings", titled: "Usage Tracker Settings") }

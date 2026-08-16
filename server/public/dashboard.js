@@ -109,6 +109,12 @@ async function refresh() {
             fetch(qs('/api/over-time') + (days ? '&' : '?') + 'by=category').then((r) => r.json())
         ]);
         last = { summary, byModel, byCategory, time, timeCat };
+        // Independent of the aggregates: a failed release lookup must not blank
+        // the dashboard, so it resolves to null rather than rejecting.
+        latestRelease = await fetch(qs('/api/latest-version'))
+            .then((r) => r.json())
+            .then((v) => v.latest || null)
+            .catch(() => null);
         renderAll();
         if (updatedEl) {
             updatedEl.textContent = 'updated ' + new Date().toLocaleTimeString().slice(0, 5);
@@ -198,10 +204,63 @@ function renderProviders(rows) {
         ' —';
 }
 
+// Newest published release, from /api/latest-version. Null until it loads (or
+// if the lookup failed) — every client then renders as simply "current".
+let latestRelease = null;
+
+// Numeric-component compare; mirrors compareVersions() in shared/version.ts.
+// A string compare would rank "1.10.0" below "1.9.0".
+function compareVersions(a, b) {
+    const parts = (v) =>
+        String(v)
+            .trim()
+            .replace(/^v/i, '')
+            .split(/[-+]/)[0]
+            .split('.')
+            .map((n) => parseInt(n, 10) || 0);
+    const l = parts(a);
+    const r = parts(b);
+    for (let i = 0; i < Math.max(l.length, r.length); i++) {
+        const lv = l[i] || 0;
+        const rv = r[i] || 0;
+        if (lv !== rv) return lv < rv ? -1 : 1;
+    }
+    return 0;
+}
+
+/** Version cell, flagged when the user is behind the latest release. */
+function versionCell(version) {
+    if (!version) return `<td class="num">—</td>`;
+    const behind = latestRelease && compareVersions(latestRelease, version) > 0;
+    if (!behind) return `<td class="num">${escapeHtml(version)}</td>`;
+    return (
+        `<td class="num stale-client" title="Behind the latest release (${escapeHtml(latestRelease)}) — run \`lut update\`">` +
+        `${escapeHtml(version)}</td>`
+    );
+}
+
+/** Count of users on an out-of-date tracker, for the panel heading. */
+function renderRolloutNote(rows) {
+    const el = document.getElementById('rollout-note');
+    if (!el) return;
+    if (!latestRelease) {
+        el.textContent = '';
+        return;
+    }
+    const behind = (rows || []).filter(
+        (r) => r.client_version && compareVersions(latestRelease, r.client_version) > 0
+    ).length;
+    el.textContent = behind
+        ? `${behind} of ${rows.length} on an older tracker — latest is ${latestRelease}`
+        : `all on ${latestRelease}`;
+    el.classList.toggle('stale-client', behind > 0);
+}
+
 function renderUsers(rows) {
     const tbody = document.querySelector('#user-table tbody');
     if (!rows || !rows.length) {
         tbody.innerHTML = `<tr><td colspan="7" class="empty">No usage yet. Run a session or POST to /ingest.</td></tr>`;
+        renderRolloutNote(rows);
         return;
     }
     tbody.innerHTML = rows
@@ -215,10 +274,12 @@ function renderUsers(rows) {
                 `<td class="num">${fmtTokens(r.tokens)}</td>` +
                 `<td class="num">${fmtEnergy(r.energy_wh)}</td>` +
                 `<td class="num">${fmtCO2(r.co2_grams)}</td>` +
-                `<td class="num">${escapeHtml(r.client_version || '—')}</td></tr>`
+                versionCell(r.client_version) +
+                `</tr>`
             );
         })
         .join('');
+    renderRolloutNote(rows);
 }
 
 // One delegated click listener survives every tbody rebuild.

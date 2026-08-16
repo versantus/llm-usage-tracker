@@ -13,7 +13,7 @@
  * label stands.
  */
 
-import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -88,15 +88,38 @@ function readQueueFile(path: string): ReclassifyItem[] {
         .filter((i): i is ReclassifyItem => i !== null && typeof i.sessionId === 'string');
 }
 
-/** Claim the queue (same rename-aside pattern as the spool). */
+/** How long a `.working` file may sit before we assume its owner died. */
+const CLAIM_STALE_MS = 10 * 60 * 1000;
+
+/**
+ * Claim the queue (same rename-aside pattern as the spool).
+ *
+ * An existing `.working` means another process is mid-drain, so we back off
+ * rather than read it. Reading it anyway would hand the same sessions to a
+ * second drain, and each item there spawns a `claude` subprocess — with five
+ * watchers sharing this one queue that multiplies into many concurrent Claude
+ * Code processes, which is expensive in a way nothing else here is.
+ *
+ * A `.working` older than CLAIM_STALE_MS belonged to a process that crashed
+ * mid-drain; take it over so the queue can't wedge forever.
+ */
 function claimQueue(): ReclassifyItem[] {
     const work = `${queuePath()}.working`;
-    if (!existsSync(work)) {
+    if (existsSync(work)) {
+        let ageMs = Infinity;
+        try {
+            ageMs = Date.now() - statSync(work).mtimeMs;
+        } catch {
+            return []; // vanished under us — the owner is finishing up
+        }
+        if (ageMs < CLAIM_STALE_MS) return []; // live owner; try again next tick
+        // Stale: fall through and adopt it.
+    } else {
         if (!existsSync(queuePath())) return [];
         try {
             renameSync(queuePath(), work);
         } catch {
-            return []; // another process claimed it
+            return []; // another process claimed it first
         }
     }
     return readQueueFile(work);
@@ -169,6 +192,9 @@ function collectFor(item: ReclassifyItem) {
     return source.collectSession({ sessionId: item.sessionId, transcriptPath: item.transcriptPath });
 }
 
+/** True while this process is inside a drain — see drainReclassifyQueue. */
+let draining = false;
+
 /**
  * Drain queued ambiguous sessions: re-collect, LLM-classify, re-POST.
  * The server upsert is idempotent, and re-collection yields same-or-newer
@@ -180,8 +206,22 @@ export async function drainReclassifyQueue(
 ): Promise<{ processed: number; reclassified: number }> {
     const result = { processed: 0, reclassified: 0 };
     if (cfg.categories === false || cfg.llmClassify === false) return result;
+    if (draining) return result; // in-process guard; claimQueue covers other processes
     if (!claudeCliPath()) return result;
 
+    draining = true;
+    try {
+        return await drain(cfg, opts, result);
+    } finally {
+        draining = false;
+    }
+}
+
+async function drain(
+    cfg: ClientConfig,
+    opts: { limit?: number; quiet?: boolean },
+    result: { processed: number; reclassified: number }
+): Promise<{ processed: number; reclassified: number }> {
     const items = claimQueue();
     if (!items.length) return result;
     const limit = opts.limit ?? 10;

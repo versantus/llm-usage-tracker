@@ -65,7 +65,29 @@ Three parts share a vendored core:
 - **`install.sh` ad-hoc signs with `--identifier lut`.** Without it codesign
   derives the identifier from the staging filename (`lut.new.$$`), so every
   install has a different code identity and macOS re-asks for permissions the
-  user already granted.
+  user already granted. `ClaudeConnector.installBinary()` signs the same way,
+  and skips the copy when the installed `lut` is newer — it can self-update, so
+  an unconditional copy would downgrade it on every Connect click.
+- **Watcher ticks are non-reentrant, and scans are windowed.** Two rules that
+  cost hundreds of MB when broken (measured 601MB peak → 46MB):
+  - `startWatcher`'s tick holds a `ticking` flag. A cycle can outlast its
+    interval (a 45s LLM classification on a 15s watcher), and overlapping
+    cycles stack transcripts in memory and multiply `claude` subprocesses.
+  - Every `items(sinceHours)` must honour its window, and the opening pass uses
+    the same window as the ticks. Scanning all history on start re-read and
+    re-posted years of transcripts on *every* restart. `lut scan-<surface>
+    --all` is the explicit full backfill.
+  - `drainReclassifyQueue` is guarded in-process (`draining`) and across
+    processes (`claimQueue` backs off from a live `.working`, adopting it only
+    once stale). All watchers share one queue; without this each one spawns
+    `claude` for the same sessions.
+- **One version number.** `CLIENT_VERSION` in `shared/version.ts` is the single
+  source of truth: `macos-app/build.sh` stamps it into `Info.plist` (the
+  committed value is a `0.0.0` placeholder) and CI fails a tag that disagrees.
+  The update checker compares both artifacts against one release tag.
+- **Update checks are automatic; installs never are.** An update re-signs the
+  binary and restarts LaunchAgents, which can re-trigger macOS permission
+  prompts. Every surface notifies and waits for a click.
 
 ## Commands
 
@@ -77,6 +99,8 @@ LUT_ALLOW_NO_AUTH=1 bun run server/index.ts   # start server :4317 (auth is fail
 bun run client/setup.ts --name N --email E --server-url URL [--no-cowork] [--wire-hook]
 bun run client/hooks/stop.ts                  # hook (reads stdin JSON)
 bun run client/watch-cowork.ts [--once] [--interval 15]
+bun run cli/lut.ts watch-all [--only codex,cowork]   # all surfaces, ONE process
+bun run cli/lut.ts update --check [--json]           # release check (24h cache)
 bun run cli/report.ts [--days N] [--by user|model|category] [--json] [--server URL]
 bun cli/lut.ts scan-claude-code [--hours N|--all] # backfill categories onto history
 bun cli/lut.ts classify [--once]              # drain the ambiguous-session LLM queue

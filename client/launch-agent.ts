@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
 
@@ -110,6 +110,34 @@ export function agentEnabled(suffix: string): boolean {
     if (!existsSync(plistPath(suffix))) return false;
     try {
         execFileSync('launchctl', ['print', `${gui()}/${label(suffix)}`], { stdio: 'ignore' });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Suffixes of every installed watcher plist, whether or not it's loaded. */
+export function listEnabledAgents(): string[] {
+    if (!isMac()) return [];
+    const dir = join(homedir(), 'Library', 'LaunchAgents');
+    try {
+        return readdirSync(dir)
+            .filter((f) => f.startsWith(`${PREFIX}.`) && f.endsWith('.plist'))
+            .map((f) => f.slice(PREFIX.length + 1, -'.plist'.length))
+            .filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Restart a running watcher so it picks up a replaced binary. `kickstart -k`
+ * kills the current instance and starts a fresh one from the same plist.
+ */
+export function kickstartAgent(suffix: string): boolean {
+    if (!isMac()) return false;
+    try {
+        execFileSync('launchctl', ['kickstart', '-k', `${gui()}/${label(suffix)}`], { stdio: 'ignore' });
         return true;
     } catch {
         return false;

@@ -8,7 +8,9 @@
  *   lut <surface> enable|disable|status     surface in: codex cowork copilot gemini ollama
  *   lut scan-<surface> [--hours N|--all]    one-off report
  *   lut watch-<surface> [--interval S]      continuous watcher (LaunchAgent runs this)
+ *   lut watch-all [--interval S]            all detected surfaces in one process
  *   lut cursor-pull  pull Cursor team usage via the Admin API (server-side)
+ *   lut update [--check]                    self-update from the latest release
  *   lut status | report | version
  *
  * Surfaces with no Stop-style hook (codex/cowork/copilot/gemini/ollama) are
@@ -35,6 +37,7 @@ import { agentEnabled, disableAgent, enableAgent } from '../client/launch-agent.
 import { flushSpool } from '../client/post.ts';
 import { ask } from '../client/prompt.ts';
 import { scanSource, type ScanItem } from '../client/scan-source.ts';
+import { applyUpdate, checkForUpdate } from '../client/update.ts';
 import {
     claudeCodeSource,
     listClaudeCodeTranscripts
@@ -143,9 +146,9 @@ const SURFACES: Record<string, SurfaceDef> = {
     },
     cowork: {
         available: coworkAvailable,
-        items: () => listCoworkAuditFiles().map((f) => ({ sessionId: f.sessionId, path: f.auditPath, mtimeMs: f.mtimeMs })),
+        items: (h) => listCoworkAuditFiles(h).map((f) => ({ sessionId: f.sessionId, path: f.auditPath, mtimeMs: f.mtimeMs })),
         source: coworkSource,
-        backfillHours: 0,
+        backfillHours: 24,
         interval: 15,
         gate: (cfg) => cfg.surfaces.cowork !== false
     },
@@ -301,6 +304,17 @@ async function cmdStatus(): Promise<void> {
     for (const name of SURFACE_NAMES) console.log(`  ${(name + ':').padEnd(10)} ${surfaceState(name)}`);
     console.log(`  binary:    ${process.execPath}`);
 
+    // Cached lookup only — `lut status` shouldn't wait on GitHub.
+    const update = await checkForUpdate();
+    console.log(
+        `  version:   ${update.current}` +
+            (update.updateAvailable
+                ? `  →  ${update.latest} available (run \`lut update\`)`
+                : update.latest
+                  ? '  (latest)'
+                  : '  (update check unavailable)')
+    );
+
     if (cfg) {
         try {
             const res = await fetch(`${cfg.serverUrl.replace(/\/$/, '')}/api/health`, { signal: AbortSignal.timeout(4000) });
@@ -309,6 +323,41 @@ async function cmdStatus(): Promise<void> {
             console.log('  server up: no (unreachable)');
         }
     }
+}
+
+/**
+ * `lut update` — apply the latest release; `--check` only reports.
+ * `--json` gives the Mac app and the Windows tray a stable shape to parse.
+ */
+async function cmdUpdate(): Promise<void> {
+    const checkOnly = has('check');
+    const asJson = has('json');
+
+    if (checkOnly) {
+        const status = await checkForUpdate({ force: !has('cached') });
+        if (asJson) {
+            console.log(JSON.stringify(status));
+            return;
+        }
+        if (!status.latest) {
+            console.error(`Update check failed: ${status.error}`);
+            process.exit(1);
+        }
+        console.log(
+            status.updateAvailable
+                ? `Update available: ${status.current} → ${status.latest}\nRun \`lut update\` to install it.\n${status.releasesPage}`
+                : `Up to date (${status.current}).`
+        );
+        return;
+    }
+
+    const result = await applyUpdate({ quiet: asJson });
+    if (asJson) {
+        console.log(JSON.stringify(result));
+    } else {
+        console.error(result.message);
+    }
+    if (!result.ok) process.exit(1);
 }
 
 async function cmdReport(): Promise<void> {
@@ -386,19 +435,102 @@ async function cmdScan(name: string): Promise<void> {
     console.error(`scanned ${res.scanned} ${name} session(s), sent ${res.sent}.`);
 }
 
-async function cmdWatch(name: string): Promise<void> {
+/**
+ * Start one surface's polling loop in this process. Returns immediately; the
+ * caller decides how long to stay alive.
+ */
+async function startWatcher(cfg: ClientConfig, name: string, intervalSec?: number): Promise<void> {
     const def = SURFACES[name];
-    const cfg = requireConfig();
-    const interval = Number(flag('interval') || String(def.interval)) || def.interval;
+    const interval = intervalSec ?? def.interval;
     const seen = new Map<string, number>();
     console.error(`[usage-tracker:${name}] watching every ${interval}s`);
-    await scanSource(cfg, name, def.items(0), def.source, { seen }); // initial full pass
-    setInterval(() => {
-        scanSource(cfg, name, def.items(def.backfillHours || 48), def.source, { seen }).catch(() => {});
-        // Opportunistically drain the work-type reclassify queue (no-op when
-        // empty, opted out, or the claude CLI is absent).
-        drainReclassifyQueue(cfg, { limit: 3, quiet: true }).catch(() => {});
-    }, interval * 1000);
+
+    // Opening pass over the SAME window the ticks use, not all of history.
+    // Scanning everything on start meant every restart re-read and re-posted
+    // years of transcripts: measured at a 600MB peak here, paid again on each
+    // supervisor restart, and pointless because the server already has them.
+    // `lut scan-<surface> --all` is the way to force a full backfill.
+    await scanSource(cfg, name, def.items(def.backfillHours || 48), def.source, { seen });
+
+    // One cycle at a time. A tick can outlast its interval — a slow upload, a
+    // multi-MB transcript, or an LLM classification that runs to its 45s
+    // timeout on a 15s watcher — and letting the next tick start anyway stacks
+    // whole cycles (each holding a transcript in memory, each able to spawn its
+    // own `claude`). That is unbounded growth, not a backlog: it never drains.
+    let ticking = false;
+    const tick = async () => {
+        if (ticking) return; // previous cycle still running — skip this beat
+        ticking = true;
+        try {
+            await scanSource(cfg, name, def.items(def.backfillHours || 48), def.source, { seen });
+            // Opportunistically drain the work-type reclassify queue (no-op when
+            // empty, opted out, or the claude CLI is absent).
+            await drainReclassifyQueue(cfg, { limit: 3, quiet: true });
+            // Daily update check, notify-only — the shared 24h cache means just
+            // one watcher reaches GitHub, and none of them ever self-install.
+            const u = await checkForUpdate();
+            if (u.updateAvailable && !u.cached) {
+                console.error(
+                    `[usage-tracker:${name}] update available: ${u.current} → ${u.latest} (run \`lut update\`)`
+                );
+            }
+        } catch {
+            // never let one bad cycle kill the watcher
+        } finally {
+            ticking = false;
+        }
+    };
+    setInterval(() => void tick(), interval * 1000);
+}
+
+async function cmdWatch(name: string): Promise<void> {
+    const cfg = requireConfig();
+    const override = Number(flag('interval')) || undefined;
+    await startWatcher(cfg, name, override);
+    await new Promise(() => {});
+}
+
+/**
+ * Watch every detected surface from ONE process.
+ *
+ * Each `lut watch-<surface>` is a full embedded Bun runtime, so five of them
+ * cost five baseline heaps for work that is almost entirely idle polling. The
+ * Windows tray supervises watchers itself and uses this; macOS keeps one
+ * LaunchAgent per surface, which launchd already restarts independently.
+ */
+async function cmdWatchAll(): Promise<void> {
+    const cfg = requireConfig();
+    const override = Number(flag('interval')) || undefined;
+    // `--only a,b` restricts to a caller-chosen set — the Windows tray passes
+    // the surfaces ticked in its settings, which detection alone can't know.
+    const only = flag('only')
+        ?.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    if (only?.length) {
+        const unknown = only.filter((n) => !SURFACE_NAMES.includes(n));
+        if (unknown.length) {
+            console.error(`unknown surface(s): ${unknown.join(', ')}`);
+            process.exit(1);
+        }
+    }
+    const wanted = SURFACE_NAMES.filter((name) => {
+        if (only?.length && !only.includes(name)) return false;
+        const def = SURFACES[name];
+        if (def.gate && !def.gate(cfg)) return false;
+        return def.available();
+    });
+    if (!wanted.length) {
+        console.error('[usage-tracker] no watchable surfaces detected — idling.');
+    }
+    for (const name of wanted) {
+        try {
+            await startWatcher(cfg, name, override);
+        } catch (err: any) {
+            // One bad surface must not take the whole process down with it.
+            console.error(`[usage-tracker:${name}] failed to start: ${err?.message ?? err}`);
+        }
+    }
     await new Promise(() => {});
 }
 
@@ -431,11 +563,13 @@ function usage(): void {
             '  wire | unwire   (re)wire / remove the Stop hook',
             '  gui        launch the tray + settings GUI (Windows)',
             '  status | report [--days N] | version',
+            '  update [--check] [--json]   install the latest release (--check only reports)',
             '',
             'Watcher surfaces: ' + SURFACE_NAMES.join(', '),
             '  <surface> enable|disable|status',
             '  scan-<surface> [--hours N | --all]',
             '  watch-<surface> [--interval S]',
+            '  watch-all [--interval S] [--only a,b]  detected surfaces in ONE process',
             '',
             'Work types (privacy-safe: only a category label leaves this machine):',
             '  scan-claude-code [--hours N | --all]   backfill categories onto history',
@@ -481,12 +615,16 @@ if (cmd === 'hook') {
     await cmdClassify();
 } else if (scanMatch && SURFACE_NAMES.includes(scanMatch[1])) {
     await cmdScan(scanMatch[1]);
+} else if (cmd === 'watch-all') {
+    await cmdWatchAll();
 } else if (watchMatch && SURFACE_NAMES.includes(watchMatch[1])) {
     await cmdWatch(watchMatch[1]);
 } else if (cmd === 'cursor-pull') {
     await cmdCursorPull();
 } else if (cmd === 'gui' || cmd === 'tray') {
     await launchGui({ debug: has('debug') });
+} else if (cmd === 'update') {
+    await cmdUpdate();
 } else if (cmd === 'status') {
     await cmdStatus();
 } else if (cmd === 'report') {

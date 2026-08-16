@@ -103,10 +103,27 @@ final class ClaudeConnector: ObservableObject {
         return false
     }
 
+    /// Version of an installed `lut`, or nil if it isn't there / won't run.
+    private func versionOf(_ binary: URL) -> String? {
+        guard FileManager.default.isExecutableFile(atPath: binary.path) else { return nil }
+        guard let out = try? run(binary.path, ["version"]) else { return nil }
+        let v = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? nil : v
+    }
+
     /// Copy the bundled binary into ~/.local/bin/lut (executable).
+    ///
+    /// Skips the copy when the installed binary is the same version or newer.
+    /// `lut` can self-update (`lut update`), so an unconditional copy would let
+    /// any Connect click or watcher toggle silently downgrade it back to
+    /// whatever this app was built with.
     private func installBinary() throws {
         guard let src = bundledBinary, FileManager.default.fileExists(atPath: src.path) else {
             throw ConnectError.noBundledBinary
+        }
+        if let installed = versionOf(installedBinary), let bundled = versionOf(src),
+           Updater.compareVersions(installed, bundled) >= 0 {
+            return // already at least as new — leave it alone
         }
         let fm = FileManager.default
         try fm.createDirectory(at: installedBinary.deletingLastPathComponent(),
@@ -118,8 +135,11 @@ final class ClaudeConnector: ObservableObject {
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedBinary.path)
         // Clear quarantine so the copied binary runs without a Gatekeeper prompt.
         _ = try? run("/usr/bin/xattr", ["-d", "com.apple.quarantine", installedBinary.path])
-        // Ad-hoc re-sign the copied binary so AMFI doesn't kill it.
-        _ = try? run("/usr/bin/codesign", ["--force", "--sign", "-", installedBinary.path])
+        // Ad-hoc re-sign the copied binary so AMFI doesn't kill it. `--identifier
+        // lut` keeps the code identity stable across installs so macOS doesn't
+        // re-ask for every permission already granted (see install.sh).
+        _ = try? run("/usr/bin/codesign",
+                     ["--force", "--sign", "-", "--identifier", "lut", installedBinary.path])
     }
 
     /// Install the binary, then `lut connect` with the given identity/server.

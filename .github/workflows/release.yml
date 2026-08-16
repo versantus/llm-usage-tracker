@@ -1,8 +1,9 @@
-# Build the `lut` CLI for every platform and attach the binaries to a GitHub
-# Release, so install.sh / install.ps1 can download prebuilt binaries (no bun
-# needed on the user's machine).
+# Build the `lut` CLI for every platform, plus the macOS app, and attach them
+# to a GitHub Release. install.sh / install.ps1 download the CLI binaries, and
+# the in-app updater (Updater.swift) downloads the UsageTracker-macos-*.zip.
 #
 # Trigger by pushing a tag:  git tag v0.2.0 && git push origin v0.2.0
+# The tag must match CLIENT_VERSION in shared/version.ts — `verify` enforces it.
 name: release
 
 on:
@@ -14,13 +15,36 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  # A mismatched tag would ship binaries that report the wrong version and make
+  # every client think an update is permanently available (or never available).
+  verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - name: Tag matches CLIENT_VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          src="$(sed -n "s/^export const CLIENT_VERSION = '\([^']*\)'.*/\1/p" shared/version.ts)"
+          echo "tag=$tag  shared/version.ts=$src"
+          if [[ "$tag" != "$src" ]]; then
+            echo "::error::tag v$tag does not match CLIENT_VERSION $src in shared/version.ts"
+            exit 1
+          fi
+
+  cli:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      - name: Typecheck and test
+        run: |
+          bun install --frozen-lockfile
+          bunx tsc --noEmit
+          bun test
       - name: Build all targets
         run: ./scripts/build-cli.sh --all
       - name: Upload to release
@@ -33,4 +57,30 @@ jobs:
             dist/lut-linux-arm64
             dist/lut-windows-x64.exe
             dist/lut-windows-arm64.exe
+          fail_on_unmatched_files: true
+
+  # Both Mac architectures are cross-compiled on one Apple-silicon runner:
+  # `swift build --arch` and `bun build --target` each handle the other slice,
+  # so no Intel runner is needed (GitHub no longer offers one).
+  macos-app:
+    needs: verify
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            asset: UsageTracker-macos-arm64.zip
+          - arch: x86_64
+            asset: UsageTracker-macos-x64.zip
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Build app (${{ matrix.arch }})
+        run: ./macos-app/build.sh --arch ${{ matrix.arch }} --zip
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: macos-app/${{ matrix.asset }}
           fail_on_unmatched_files: true
