@@ -21,6 +21,7 @@ import type { SessionFeatures } from '../shared/categorizer.ts';
 import { classifyHeuristic, extractSessionFeatures, mergeFeatures } from '../shared/categorizer.ts';
 import type { CategoryResult, Surface, WorkCategory } from '../shared/types.ts';
 import { agentWorkDir, configDir, type ClientConfig } from './config.ts';
+import { eachLine } from './line-reader.ts';
 import { postEvent } from './post.ts';
 import { claudeCodeSource } from './sources/claude-code-source.ts';
 import { coworkSource } from './sources/cowork-source.ts';
@@ -243,8 +244,8 @@ async function drain(
         if (!session || session.usage.totals.totalTokens === 0) continue;
 
         // Re-derive the vector from the fresh transcript (it may have grown).
-        const lines = readFileSync(item.transcriptPath, 'utf-8').split('\n').filter((l) => l.trim());
-        const features = extractSessionFeatures(lines);
+        // Streamed — this runs on watcher ticks and transcripts get large.
+        const features = extractSessionFeatures(eachLine(item.transcriptPath));
         const heuristic = session.category ?? classifyHeuristic(features);
 
         const llm = await llmClassify(features, heuristic);

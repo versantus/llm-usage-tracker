@@ -41,8 +41,15 @@ final class ClaudeConnector: ObservableObject {
         home.appendingPathComponent(".claude/settings.json")
     }
     private func sessionsDir(_ rel: String) -> URL { home.appendingPathComponent(rel) }
-    private func agentPlist(_ suffix: String) -> URL {
-        home.appendingPathComponent("Library/LaunchAgents/uk.co.versantus.usage-tracker.\(suffix).plist")
+
+    /// Surfaces switched on, from the state file `lut` keeps. Watchers all run
+    /// in one service now, so there is no longer a per-surface plist to look for.
+    private func enabledSurfaces() -> Set<String> {
+        let path = home.appendingPathComponent(".config/llm-usage-tracker/watchers.json")
+        guard let data = try? Data(contentsOf: path),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = json["surfaces"] as? [String] else { return [] }
+        return Set(list)
     }
 
     init() {
@@ -53,6 +60,7 @@ final class ClaudeConnector: ObservableObject {
     func refreshState() {
         let fm = FileManager.default
         connected = hookIsWired()
+        let on = enabledSurfaces()
         surfaces = surfaceDefs.map { def in
             var available = fm.fileExists(atPath: sessionsDir(def.probe).path)
             if def.id == "copilot" && !available {
@@ -64,7 +72,7 @@ final class ClaudeConnector: ObservableObject {
                 id: def.id,
                 label: def.label,
                 available: available,
-                enabled: fm.fileExists(atPath: agentPlist(def.id).path)
+                enabled: on.contains(def.id)
             )
         }
     }

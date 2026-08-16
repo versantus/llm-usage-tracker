@@ -162,13 +162,29 @@ You'll see the notice in whichever surface you use:
 - **Dashboard** — the Users table flags anyone on an older tracker, so whoever
   runs the server can see the rollout at a glance.
 
+## Linux
+
+`install.sh` works the same way. Watchers run as a **systemd user unit**
+(`llm-usage-tracker-watchers.service`), set up automatically by `lut connect`.
+User units stop at logout unless lingering is enabled:
+
+```bash
+sudo loginctl enable-linger $USER
+systemctl --user status llm-usage-tracker-watchers
+```
+
+With no systemd user session, run `lut watch-all` under whatever supervises
+services on that box.
+
 ## Managing / uninstalling
 
 ```bash
 lut unwire            # remove the Claude Code Stop hook
-lut codex disable     # remove the Codex watcher
+lut codex disable     # stop tracking one tool (the others keep running)
 rm ~/.local/bin/lut   # remove the binary
 ```
+
+All enabled watchers share a single background process. `lut status` shows it.
 
 Config lives at `~/.config/llm-usage-tracker/config.json`.
 

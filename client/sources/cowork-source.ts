@@ -16,14 +16,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { categorizeLines } from '../../shared/categorizer.ts';
-import {
-    aggregate,
-    getFirstTimestamp,
-    getLastTimestamp,
-    parseTranscriptLines
-} from '../../shared/transcript-parser.ts';
+import { classifyHeuristic, createFeatureAccumulator } from '../../shared/categorizer.ts';
+import { aggregate, scanTranscript } from '../../shared/transcript-parser.ts';
 import type { CollectedSession } from '../../shared/types.ts';
+import { eachLine } from '../line-reader.ts';
 import type { Source } from './source.ts';
 
 export function coworkSessionsRoot(): string {
@@ -100,14 +96,12 @@ export function listCoworkAuditFiles(
     return out;
 }
 
-function readLines(file: string): string[] {
-    let text: string;
-    try {
-        text = readFileSync(file, 'utf-8');
-    } catch {
-        return []; // deleted/rotated between listing and reading
-    }
-    return text.split('\n').filter((l) => l.trim());
+/**
+ * Stream an audit file's lines. Deleted/rotated files simply yield nothing.
+ * See client/line-reader.ts for why this isn't a readFileSync + split.
+ */
+function readLines(file: string): Iterable<string> {
+    return eachLine(file);
 }
 
 /** Best-effort: pull a cwd from a sibling metadata JSON if one exists. */
@@ -133,9 +127,12 @@ export const coworkSource: Source = {
         const auditPath = transcriptPath ?? null;
         if (!auditPath || !existsSync(auditPath)) return null;
 
-        const lines = readLines(auditPath);
-        if (!lines.length) return null;
-        const usage = aggregate(parseTranscriptLines(lines));
+        // ONE streaming pass: usage records, both timestamps and the work-type
+        // features all share a single JSON.parse per line.
+        const featureAcc = createFeatureAccumulator();
+        const scan = scanTranscript(readLines(auditPath), featureAcc.push);
+        if (!scan.records.length && !scan.firstTimestamp) return null; // empty/unreadable
+        const usage = aggregate(scan.records);
 
         let stat: ReturnType<typeof statSync>;
         try {
@@ -143,8 +140,8 @@ export const coworkSource: Source = {
         } catch {
             return null; // session dir removed mid-scan — skip, don't crash the watcher
         }
-        const startedAt = getFirstTimestamp(lines) ?? stat.birthtime.toISOString();
-        const updatedAt = getLastTimestamp(lines) ?? stat.mtime.toISOString();
+        const startedAt = scan.firstTimestamp ?? stat.birthtime.toISOString();
+        const updatedAt = scan.lastTimestamp ?? stat.mtime.toISOString();
 
         return {
             provider: 'anthropic',
@@ -152,7 +149,7 @@ export const coworkSource: Source = {
             sessionId,
             cwd: findCwd(auditPath),
             usage,
-            category: categorizeLines(lines),
+            category: classifyHeuristic(featureAcc.result()),
             startedAt,
             updatedAt
         } satisfies CollectedSession;
